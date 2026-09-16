@@ -62,8 +62,10 @@ struct MenuBarView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      Button("Manage Tunnels…") { open(WindowID.tunnels) }
+      Button { open(WindowID.tunnels) } label: { Label("Manage Tunnels", systemImage: "slider.horizontal.3") }
+        .buttonStyle(.borderedProminent)
         .controlSize(.small)
+        .help("Add your first tunnel")
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 20)
@@ -114,17 +116,21 @@ private struct GroupHeader: View {
       Spacer()
       if hovering {
         if !allActive {
-          Button { manager.connectAll(inGroup: group) } label: { Image(systemName: "play.fill") }
-            .help("Connect all in \(group.isEmpty ? "Other" : group)")
+          Button { manager.connectAll(inGroup: group) } label: {
+            Label("All", systemImage: "play.fill").font(.caption2)
+          }
+          .help("Connect all in \(group.isEmpty ? "Other" : group)")
         }
         if anyActive {
-          Button { manager.disconnectAll(inGroup: group) } label: { Image(systemName: "stop.fill") }
-            .help("Disconnect all in \(group.isEmpty ? "Other" : group)")
+          Button { manager.disconnectAll(inGroup: group) } label: {
+            Label("All", systemImage: "stop.fill").font(.caption2)
+          }
+          .help("Disconnect all in \(group.isEmpty ? "Other" : group)")
         }
       }
     }
-    .buttonStyle(.borderless)
-    .controlSize(.small)
+    .buttonStyle(.bordered)
+    .controlSize(.mini)
     .padding(.horizontal, 8)
     .padding(.top, 8)
     .padding(.bottom, 2)

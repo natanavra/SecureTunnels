@@ -79,6 +79,8 @@ final class SSHCommandTests: XCTestCase {
       "Local port 8082 is already in use."
     )
     XCTAssertEqual(SSHCommand.friendlyError(from: "", exitStatus: 255), "ssh exited with status 255.")
+    XCTAssertTrue(SSHCommand.friendlyError(from: "ssh_askpass: exec(/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnelsAskPass): Operation not permitted\nPermission denied (publickey).", exitStatus: 255).contains("xattr"))
+    XCTAssertTrue(SSHCommand.friendlyError(from: "@ WARNING: UNPROTECTED PRIVATE KEY FILE! @\nPermissions 0644 for '/Users/me/key.pem' are too open.\nPermission denied (publickey).", exitStatus: 255).contains("chmod 600"))
     XCTAssertEqual(SSHCommand.friendlyError(from: "ssh: Could not resolve hostname nope: nodename nor servname provided", exitStatus: 255), "Could not resolve the host name.")
   }
 }

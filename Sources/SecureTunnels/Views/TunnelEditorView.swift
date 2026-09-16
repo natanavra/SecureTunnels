@@ -60,8 +60,10 @@ struct TunnelEditorView: View {
               .font(.caption)
               .foregroundStyle(.secondary)
             Spacer()
-            Button("Edit Profile…") { manager.pendingProfileSelection = profile.id }
-              .controlSize(.small)
+            Button { manager.pendingProfileSelection = profile.id } label: {
+              Label("Edit Profile", systemImage: "person.crop.circle")
+            }
+            .buttonStyle(.bordered)
               .help("Open this profile to change its server settings and secrets")
           }
         } else {
@@ -70,7 +72,8 @@ struct TunnelEditorView: View {
           TextField("Username", text: $tunnel.username, prompt: Text("ec2-user"))
           HStack {
             TextField("Identity file", text: $tunnel.identityFile, prompt: Text("Leave empty to use ~/.ssh keys or the agent"))
-            Button("Choose…") { chooseIdentityFile() }
+            Button { chooseIdentityFile() } label: { Label("Choose", systemImage: "folder") }
+              .buttonStyle(.bordered)
               .help("Pick the private key file for this tunnel")
           }
           SecureField("Key passphrase", text: $passphrase, prompt: Text("Only if the key is encrypted"))
@@ -85,12 +88,14 @@ struct TunnelEditorView: View {
               .font(.caption)
               .foregroundStyle(.secondary)
             Spacer()
-            Button("Save as Profile…") {
+            Button {
               if let created = manager.createProfile(fromTunnel: tunnel.id) {
                 manager.pendingProfileSelection = created.id
               }
+            } label: {
+              Label("Save as Profile", systemImage: "person.badge.plus")
             }
-            .controlSize(.small)
+            .buttonStyle(.bordered)
             .disabled(tunnel.host.isEmpty)
             .help("Move these server settings and secrets into a reusable profile")
           }
@@ -162,10 +167,13 @@ struct TunnelEditorView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
               Spacer()
-              Button("Copy") {
+              Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(output, forType: .string)
+              } label: {
+                Label("Copy", systemImage: "doc.on.doc")
               }
+              .buttonStyle(.bordered)
               .controlSize(.small)
               .help("Copy the ssh output to the clipboard")
             }
@@ -187,13 +195,21 @@ struct TunnelEditorView: View {
             .multilineTextAlignment(.trailing)
             .foregroundStyle(.secondary)
         }
-        HStack {
-          Button(status.isActive ? "Disconnect" : "Connect") { manager.toggle(tunnel.id) }
-            .help(status.isActive ? "Close this tunnel" : "Open this tunnel")
-          Button("Show Log") { showLog() }
+        HStack(spacing: 10) {
+          Button { manager.toggle(tunnel.id) } label: {
+            Label(status.isActive ? "Disconnect" : "Connect", systemImage: status.isActive ? "stop.fill" : "play.fill")
+              .frame(minWidth: 96)
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(status.isActive ? .red : .accentColor)
+          .help(status.isActive ? "Close this tunnel" : "Open this tunnel")
+          Button { showLog() } label: { Label("Show Log", systemImage: "doc.text.magnifyingglass") }
+            .buttonStyle(.bordered)
             .disabled(!FileManager.default.fileExists(atPath: AppPaths.logFile(for: tunnel.id).path))
             .help("Open the full ssh log for this tunnel")
+          Spacer()
         }
+        .padding(.vertical, 2)
       }
     }
     .formStyle(.grouped)

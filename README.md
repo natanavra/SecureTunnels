@@ -119,6 +119,26 @@ tunnel. When the network path goes away it kills the sessions immediately, shows
 relaunches them the moment a route is back, with the backoff reset. Before sleep it does the same and
 reconnects three seconds after wake.
 
+## Troubleshooting
+
+**The tunnel switches off right after switching on.** Open Manage Tunnels, select the tunnel and read "Last
+error" and the ssh output box in the Status section, or press Show Log. The usual causes:
+
+- Another process already listens on the local port. The error names it, for example "port 8080 is already in
+  use by node (pid 512)". Pick another local port or stop that process.
+- The key needs a passphrase that has not been entered, or the key is not the right one for the server. ssh
+  reports "Permission denied (publickey)". Enter the passphrase in the tunnel or profile, or add the key.
+- The key file's permissions are too open. ssh ignores keys that other users can read: `chmod 600 key.pem`.
+- The key lives in Desktop, Documents, Downloads or a cloud drive folder and macOS has not let SecureTunnels
+  read it. Allow it under System Settings > Privacy & Security > Files and Folders, or move the key to `~/.ssh`.
+- The app came from a zip and only the app itself was un-quarantined (right-click, Open). ssh runs the bundled
+  passphrase helper directly and Gatekeeper kills it. The app clears the flag on the helper by itself when it
+  can; otherwise run `xattr -dr com.apple.quarantine /Applications/SecureTunnels.app`.
+- No route to the network. The popover header says "No network" and the tunnel waits instead of failing.
+
+**Launch at login is off after a rebuild.** macOS ties the login item to the app at `/Applications`. Turn the
+toggle off and on again in Settings after replacing the app.
+
 ## Layout
 
 - `Sources/SecureTunnelsCore`: tunnel and profile model, JSON storage, keychain, ssh argument builder, port

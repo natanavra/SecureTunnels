@@ -26,7 +26,7 @@ enum SnapshotRunner {
     let pages: [(name: String, view: AnyView, size: NSSize)] = [
       ("menubar", AnyView(MenuBarView().environment(manager).environment(settings)
         .background(Color(nsColor: .windowBackgroundColor))), NSSize(width: 320, height: 0)),
-      ("tunnels", AnyView(TunnelsWindow(initialSelection: firstTunnel).environment(manager).environment(settings)), NSSize(width: 860, height: 600)),
+      ("tunnels", AnyView(TunnelsWindow(initialSelection: firstTunnel).environment(manager).environment(settings)), NSSize(width: 940, height: 640)),
       ("settings", AnyView(SettingsView().environment(manager).environment(settings)), NSSize(width: 520, height: 0)),
     ]
 

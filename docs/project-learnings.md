@@ -58,3 +58,14 @@
   SIGHUP calls `NSApp.terminate`, and `sessions.json` records every ssh pid so `SessionRegistry.killStaleSessions`
   can clean up after a crash. It only kills a pid whose command line is `/usr/bin/ssh -N ...` with the
   SecureTunnels marker, because pids get reused.
+
+## Instant disconnects on another Mac (2026-09-16)
+
+- A co-founder's install closed every tunnel right away. Nothing in the process code was machine specific, so
+  the launch path now pre-checks the things that differ between Macs and reports them as the error: local port
+  already taken, identity file missing or unreadable (opening it also triggers the macOS folder-access prompt
+  for Desktop, Documents, Downloads and cloud drives), key permissions looser than 0600, and a quarantined
+  askpass helper. The helper is executed by ssh, not by LaunchServices, so a right-click Open on the app does
+  not clear its quarantine flag; the app removes the flag on its own helper with `removexattr` when it can.
+- `NWPathMonitor` reports `.requiresConnection` for on-demand VPN links. Treat only `.unsatisfied` as offline.
+- The connected marker can arrive split across two stdout reads; match on an accumulated buffer.

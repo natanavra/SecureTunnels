@@ -22,7 +22,7 @@ struct SecureTunnelsApp: App {
         .environment(manager)
         .environment(settings)
     }
-    .defaultSize(width: 860, height: 600)
+    .defaultSize(width: 940, height: 640)
 
     Window("SecureTunnels Settings", id: WindowID.settings) {
       SettingsView()

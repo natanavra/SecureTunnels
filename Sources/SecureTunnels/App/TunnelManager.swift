@@ -61,6 +61,7 @@ final class TunnelManager {
   @ObservationIgnored private var processes: [UUID: Process] = [:]
   @ObservationIgnored private var launching: Set<UUID> = []
   @ObservationIgnored private var stderrBuffers: [UUID: String] = [:]
+  @ObservationIgnored private var stdoutBuffers: [UUID: String] = [:]
   @ObservationIgnored private var wantsRunning: Set<UUID> = []
   @ObservationIgnored private var attempts: [UUID: Int] = [:]
   @ObservationIgnored private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
@@ -144,7 +145,9 @@ final class TunnelManager {
   private func observeNetwork() {
     let monitor = NWPathMonitor()
     monitor.pathUpdateHandler = { path in
-      let satisfied = path.status == .satisfied
+      // requiresConnection (on-demand VPN, dial-up style links) still allows connecting, so only a hard
+      // "unsatisfied" counts as offline.
+      let satisfied = path.status != .unsatisfied
       Task { @MainActor in self.handleNetworkChange(satisfied: satisfied) }
     }
     monitor.start(queue: DispatchQueue(label: "SecureTunnels.network"))
@@ -481,6 +484,7 @@ final class TunnelManager {
 
     let listensLocally = tunnel.listensLocally
     let port = tunnel.bindPort
+    let identity = resolved(tunnel).expandedIdentityFile
     Task { @MainActor in
       let usage = listensLocally ? await Task.detached { PortProbe.listener(on: port) }.value : nil
       launching.remove(id)
@@ -491,8 +495,44 @@ final class TunnelManager {
         scheduleRetryOrFail(id, message: message)
         return
       }
+      if let problem = Self.identityProblem(path: identity) ?? Self.helperProblem() {
+        lastOutput[id] = problem + "\n"
+        scheduleRetryOrFail(id, message: problem)
+        return
+      }
       startProcess(for: id)
     }
+  }
+
+  /// Checks the key file the way ssh will: it must exist, be readable by this app (which also triggers the
+  /// macOS folder-access prompt for Desktop, Documents, Downloads and cloud drives) and not be world readable.
+  static func identityProblem(path: String) -> String? {
+    guard !path.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+    guard FileManager.default.fileExists(atPath: path) else {
+      return "The identity file does not exist: \(path)"
+    }
+    guard let handle = FileHandle(forReadingAtPath: path) else {
+      return "The identity file could not be read. Allow SecureTunnels to access its folder in System Settings > Privacy & Security > Files and Folders, or move the key to ~/.ssh."
+    }
+    try? handle.close()
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+      let permissions = attributes[.posixPermissions] as? Int, permissions & 0o077 != 0 {
+      return "ssh refuses the identity file because its permissions are too open. Run: chmod 600 \"\(path)\""
+    }
+    return nil
+  }
+
+  /// ssh runs the askpass helper directly, so a quarantine flag left on it (zip download opened with right-click
+  /// instead of xattr) makes Gatekeeper kill it. Clear the flag on our own helper when possible.
+  static func helperProblem() -> String? {
+    let path = askPassURL.path
+    guard FileManager.default.isExecutableFile(atPath: path) else {
+      return "The passphrase helper is missing from the app bundle: \(path)"
+    }
+    let attribute = "com.apple.quarantine"
+    guard getxattr(path, attribute, nil, 0, 0, 0) >= 0 else { return nil }
+    if removexattr(path, attribute, 0) == 0 { return nil }
+    return "The passphrase helper is quarantined. Run: xattr -dr com.apple.quarantine \"\(Bundle.main.bundlePath)\""
   }
 
   private func startProcess(for id: UUID) {
@@ -500,6 +540,7 @@ final class TunnelManager {
     let tunnel = resolved(stored)
     let owner = secretOwner(for: stored)
     stderrBuffers[id] = ""
+    stdoutBuffers[id] = ""
 
     let payload = AskPassPayload(
       passphrase: Keychain.read(.passphrase, ownerID: owner),
@@ -572,7 +613,11 @@ final class TunnelManager {
     log?.write(Data(text.utf8))
     if isError {
       stderrBuffers[id, default: ""] += text
-    } else if text.contains(SSHCommand.connectedMarker), status[id] == .connecting {
+      return
+    }
+    // The marker can arrive split across reads, so match on the accumulated text.
+    stdoutBuffers[id] = String((stdoutBuffers[id, default: ""] + text).suffix(512))
+    if stdoutBuffers[id, default: ""].contains(SSHCommand.connectedMarker), status[id] == .connecting {
       status[id] = .connected
       attempts[id] = 0
     }

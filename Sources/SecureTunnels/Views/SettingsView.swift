@@ -31,7 +31,10 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
           HStack {
-            Button("Import Connections") { importFromSecurePipes() }
+            Button { importFromSecurePipes() } label: {
+              Label("Import Connections", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
               .help("Read the Secure Pipes connection list and add or update tunnels")
             Text("Existing tunnels with the same Secure Pipes ID are updated, not duplicated.")
               .font(.caption)

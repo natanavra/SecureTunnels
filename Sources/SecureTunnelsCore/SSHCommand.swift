@@ -61,6 +61,15 @@ public enum SSHCommand {
     let last = lines.last ?? ""
     let lowered = lines.joined(separator: "\n").lowercased()
 
+    if lowered.contains("ssh_askpass") {
+      return "The passphrase helper could not run. If the app came from a zip, run: xattr -dr com.apple.quarantine /Applications/SecureTunnels.app"
+    }
+    if lowered.contains("unprotected private key file") || lowered.contains("permissions") && lowered.contains("too open") {
+      return "The identity file's permissions are too open. Run: chmod 600 <key file>"
+    }
+    if lowered.contains("no such identity") || lowered.contains("identity file") && lowered.contains("not accessible") {
+      return "The identity file could not be read. Check the path and that SecureTunnels may access that folder."
+    }
     if lowered.contains("permission denied") || lowered.contains("incorrect passphrase") || lowered.contains("no stored secret") {
       return "Authentication failed. Check the username, key file and passphrase."
     }

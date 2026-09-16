@@ -10,6 +10,7 @@ enum SidebarMode: String, CaseIterable, Identifiable {
 struct TunnelsWindow: View {
   @Environment(TunnelManager.self) private var manager
   @Environment(\.openWindow) private var openWindow
+  @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var mode: SidebarMode = .tunnels
   @State private var selection: UUID?
   @State private var profileSelection: UUID?
@@ -21,7 +22,7 @@ struct TunnelsWindow: View {
   }
 
   var body: some View {
-    NavigationSplitView {
+    NavigationSplitView(columnVisibility: $columnVisibility) {
       sidebar
     } detail: {
       detail
@@ -63,7 +64,7 @@ struct TunnelsWindow: View {
     .onAppear(perform: consumePendingSelection)
     .onChange(of: manager.pendingSelection) { consumePendingSelection() }
     .onChange(of: manager.pendingProfileSelection) { consumePendingSelection() }
-    .frame(minWidth: 800, minHeight: 560)
+    .frame(minWidth: 880, minHeight: 600)
   }
 
   /// The popover and the editor ask for a specific tunnel or profile through the manager.
@@ -94,7 +95,7 @@ struct TunnelsWindow: View {
       case .profiles: profileList
       }
     }
-    .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 380)
+    .navigationSplitViewColumnWidth(min: 290, ideal: 310, max: 420)
     .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
     .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
       Button("Remove", role: .destructive, action: deleteSelected)
@@ -256,7 +257,10 @@ struct TunnelsWindow: View {
             : "Select a tunnel to edit it.")
         } actions: {
           if manager.tunnels.isEmpty && SecurePipesImporter.isAvailable() {
-            Button("Import from Secure Pipes") { importFromSecurePipes() }
+            Button { importFromSecurePipes() } label: {
+              Label("Import from Secure Pipes", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
           }
         }
       }
