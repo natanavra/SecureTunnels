@@ -49,3 +49,12 @@
 - Generated icon artwork from Codex came back with a semi-transparent alpha channel (95% of pixels below
   alpha 250) that turned into blotches after masking. `make-icon.swift` now forces every pixel opaque before
   drawing. Asking for "fully opaque, no transparency" in the prompt did not prevent it.
+
+## Orphaned ssh sessions (2026-09-16)
+
+- `pkill -x SecureTunnels` (which `make install` runs) sends SIGTERM. AppKit does not route that through
+  `applicationWillTerminate`, so the ssh children kept running with parent pid 1 and held the local ports; the
+  next instance then reported its own ports as in use. Fix: a `DispatchSourceSignal` for SIGTERM, SIGINT and
+  SIGHUP calls `NSApp.terminate`, and `sessions.json` records every ssh pid so `SessionRegistry.killStaleSessions`
+  can clean up after a crash. It only kills a pid whose command line is `/usr/bin/ssh -N ...` with the
+  SecureTunnels marker, because pids get reused.

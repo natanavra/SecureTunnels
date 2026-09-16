@@ -4,12 +4,27 @@ import SecureTunnelsCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var windowObservers: [NSObjectProtocol] = []
+  private var signalSources: [DispatchSourceSignal] = []
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
     if SnapshotRunner.runIfRequested() { return }
     TunnelManager.shared.start()
     observeWindows()
+    observeSignals()
+  }
+
+  /// `pkill` and `kill` send SIGTERM, which would skip applicationWillTerminate and leave ssh running.
+  private func observeSignals() {
+    for signalNumber in [SIGTERM, SIGINT, SIGHUP] {
+      signal(signalNumber, SIG_IGN)
+      let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+      source.setEventHandler {
+        NSApp.terminate(nil)
+      }
+      source.resume()
+      signalSources.append(source)
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {

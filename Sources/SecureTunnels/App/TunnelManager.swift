@@ -93,6 +93,9 @@ final class TunnelManager {
       let stored = try TunnelStorage.load()
       tunnels = stored.tunnels
       profiles = stored.profiles
+      if stored.version < 2, TunnelStorage.exists() {
+        saveNow()
+      }
     } catch {
       loadError = "Could not read tunnels.json: \(error.localizedDescription)"
     }
@@ -102,6 +105,7 @@ final class TunnelManager {
 
   func start() {
     try? AppPaths.ensureDirectories()
+    SessionRegistry.killStaleSessions()
     importSecurePipesOnFirstRun()
     observeSleep()
     observeNetwork()
@@ -115,6 +119,7 @@ final class TunnelManager {
     for process in processes.values where process.isRunning {
       process.terminate()
     }
+    SessionRegistry.clear()
     saveNow()
   }
 
@@ -553,6 +558,7 @@ final class TunnelManager {
       return
     }
     processes[id] = process
+    SessionRegistry.register(pid: process.processIdentifier, tunnelID: id)
 
     // Hand the secrets to the askpass helper through ssh's inherited stdin, then close so the helper sees EOF.
     if let data = try? JSONEncoder().encode(payload) {
@@ -573,6 +579,7 @@ final class TunnelManager {
   }
 
   private func handleExit(_ id: UUID, process: Process, log: FileHandle?) {
+    SessionRegistry.unregister(pid: process.processIdentifier)
     guard processes[id] === process else { return }
     processes[id] = nil
     let stderr = stderrBuffers[id] ?? ""
