@@ -14,13 +14,18 @@ struct MenuBarView: View {
       } else {
         ScrollView {
           VStack(spacing: 1) {
-            ForEach(manager.tunnels) { tunnel in
-              TunnelMenuRow(tunnel: tunnel)
+            ForEach(manager.groups, id: \.self) { group in
+              if manager.groups.count > 1 || !group.isEmpty {
+                GroupHeader(group: group)
+              }
+              ForEach(manager.tunnels(inGroup: group)) { tunnel in
+                TunnelMenuRow(tunnel: tunnel, showDetails: { showDetails(tunnel.id) })
+              }
             }
           }
           .padding(6)
         }
-        .frame(maxHeight: 420)
+        .frame(maxHeight: 460)
       }
       Divider()
       footer
@@ -45,6 +50,7 @@ struct MenuBarView: View {
 
   private var summary: String {
     guard !manager.tunnels.isEmpty else { return "" }
+    if !manager.networkAvailable { return "No network" }
     return "\(manager.connectedCount) of \(manager.tunnels.count) connected"
   }
 
@@ -79,18 +85,66 @@ struct MenuBarView: View {
     .padding(6)
   }
 
+  private func showDetails(_ id: UUID) {
+    manager.pendingSelection = id
+    open(WindowID.tunnels)
+  }
+
   private func open(_ id: String) {
     AppDelegate.bringToFront()
     openWindow(id: id)
   }
 }
 
+private struct GroupHeader: View {
+  @Environment(TunnelManager.self) private var manager
+  let group: String
+  @State private var hovering = false
+
+  private var tunnels: [Tunnel] { manager.tunnels(inGroup: group) }
+  private var anyActive: Bool { tunnels.contains { manager.status(of: $0.id).isActive } }
+  private var allActive: Bool { tunnels.allSatisfy { manager.status(of: $0.id).isActive } }
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Text(group.isEmpty ? "Other" : group)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .textCase(.uppercase)
+      Spacer()
+      if hovering {
+        if !allActive {
+          Button { manager.connectAll(inGroup: group) } label: { Image(systemName: "play.fill") }
+            .help("Connect all in \(group.isEmpty ? "Other" : group)")
+        }
+        if anyActive {
+          Button { manager.disconnectAll(inGroup: group) } label: { Image(systemName: "stop.fill") }
+            .help("Disconnect all in \(group.isEmpty ? "Other" : group)")
+        }
+      }
+    }
+    .buttonStyle(.borderless)
+    .controlSize(.small)
+    .padding(.horizontal, 8)
+    .padding(.top, 8)
+    .padding(.bottom, 2)
+    .frame(height: 26)
+    .contentShape(Rectangle())
+    .onHover { hovering = $0 }
+  }
+}
+
 private struct TunnelMenuRow: View {
   @Environment(TunnelManager.self) private var manager
   let tunnel: Tunnel
+  let showDetails: () -> Void
   @State private var hovering = false
 
   private var status: TunnelStatus { manager.status(of: tunnel.id) }
+  private var isFailed: Bool {
+    if case .failed = status { return true }
+    return false
+  }
 
   var body: some View {
     HStack(spacing: 10) {
@@ -105,6 +159,14 @@ private struct TunnelMenuRow: View {
           .lineLimit(1)
       }
       Spacer(minLength: 8)
+      if isFailed || manager.lastError[tunnel.id] != nil {
+        Button(action: showDetails) {
+          Image(systemName: "exclamationmark.circle.fill")
+            .foregroundStyle(isFailed ? Color.red : Color.orange)
+        }
+        .buttonStyle(.plain)
+        .help("Show why the connection failed")
+      }
       Toggle("", isOn: Binding(get: { status.isActive }, set: { _ in manager.toggle(tunnel.id) }))
         .labelsHidden()
         .toggleStyle(.switch)
@@ -125,18 +187,26 @@ private struct TunnelMenuRow: View {
   private var subtitle: String {
     switch status {
     case .failed(let message): return message
-    case .reconnecting, .waitingForNetwork: return status.label
+    case .reconnecting, .waitingForNetwork:
+      if let error = manager.lastError[tunnel.id] { return "\(status.label): \(error)" }
+      return status.label
     default: return tunnel.forwardDescription
     }
   }
 
   private var subtitleColor: Color {
-    if case .failed = status { return .red }
-    return .secondary
+    switch status {
+    case .failed: return .red
+    case .reconnecting: return .orange
+    default: return .secondary
+    }
   }
 
   private var helpText: String {
-    "\(tunnel.destination)\n\(tunnel.forwardDescription)\n\(status.label)"
+    let resolved = manager.resolved(tunnel)
+    var lines = [resolved.destination, tunnel.forwardDescription, status.label]
+    if let error = manager.lastError[tunnel.id] { lines.append(error) }
+    return lines.joined(separator: "\n")
   }
 }
 

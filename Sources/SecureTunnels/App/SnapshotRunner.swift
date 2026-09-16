@@ -60,7 +60,7 @@ enum SnapshotRunner {
     NSApp.setActivationPolicy(.regular)
     NSApp.activate()
     Task { @MainActor in
-      try? await Task.sleep(for: .seconds(2))
+      try? await Task.sleep(for: .seconds(3))
       for (name, window) in windows {
         window.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .milliseconds(400))

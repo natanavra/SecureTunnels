@@ -14,19 +14,19 @@ public struct KeychainError: Error, LocalizedError {
   }
 }
 
-/// Generic-password items in the login keychain, one per tunnel and secret kind.
+/// Generic-password items in the login keychain, one per owner (tunnel or profile) and secret kind.
 public enum Keychain {
   static let service = "com.natanavra.SecureTunnels"
 
-  static func account(_ kind: SecretKind, tunnelID: UUID) -> String {
-    "\(tunnelID.uuidString).\(kind.rawValue)"
+  static func account(_ kind: SecretKind, ownerID: UUID) -> String {
+    "\(ownerID.uuidString).\(kind.rawValue)"
   }
 
-  public static func read(_ kind: SecretKind, tunnelID: UUID) -> String? {
+  public static func read(_ kind: SecretKind, ownerID: UUID) -> String? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
-      kSecAttrAccount as String: account(kind, tunnelID: tunnelID),
+      kSecAttrAccount as String: account(kind, ownerID: ownerID),
       kSecReturnData as String: true,
       kSecMatchLimit as String: kSecMatchLimitOne,
     ]
@@ -37,15 +37,15 @@ public enum Keychain {
   }
 
   /// Writes the secret, or removes the item when `value` is empty.
-  public static func write(_ value: String, _ kind: SecretKind, tunnelID: UUID) throws {
+  public static func write(_ value: String, _ kind: SecretKind, ownerID: UUID) throws {
     guard !value.isEmpty else {
-      try delete(kind, tunnelID: tunnelID)
+      try delete(kind, ownerID: ownerID)
       return
     }
     let base: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
-      kSecAttrAccount as String: account(kind, tunnelID: tunnelID),
+      kSecAttrAccount as String: account(kind, ownerID: ownerID),
     ]
     let data = Data(value.utf8)
     let updateStatus = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -59,19 +59,19 @@ public enum Keychain {
     guard addStatus == errSecSuccess else { throw KeychainError(status: addStatus) }
   }
 
-  public static func delete(_ kind: SecretKind, tunnelID: UUID) throws {
+  public static func delete(_ kind: SecretKind, ownerID: UUID) throws {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
-      kSecAttrAccount as String: account(kind, tunnelID: tunnelID),
+      kSecAttrAccount as String: account(kind, ownerID: ownerID),
     ]
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
   }
 
-  public static func deleteAll(tunnelID: UUID) {
+  public static func deleteAll(ownerID: UUID) {
     for kind in SecretKind.allCases {
-      try? delete(kind, tunnelID: tunnelID)
+      try? delete(kind, ownerID: ownerID)
     }
   }
 }

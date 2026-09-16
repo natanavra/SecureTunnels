@@ -8,7 +8,7 @@ enum TunnelStatus: Equatable {
   case disconnected
   case connecting
   case connected
-  case reconnecting(at: Date)
+  case reconnecting(at: Date, attempt: Int)
   case waitingForNetwork
   case failed(String)
 
@@ -24,9 +24,9 @@ enum TunnelStatus: Equatable {
     case .disconnected: return "Disconnected"
     case .connecting: return "Connecting…"
     case .connected: return "Connected"
-    case .reconnecting(let date):
+    case .reconnecting(let date, let attempt):
       let seconds = max(0, Int(date.timeIntervalSinceNow.rounded()))
-      return "Reconnecting in \(seconds)s"
+      return attempt > 1 ? "Retry \(attempt) in \(seconds)s" : "Reconnecting in \(seconds)s"
     case .waitingForNetwork: return "Waiting for network"
     case .failed: return "Failed"
     }
@@ -43,15 +43,26 @@ struct ImportSummary {
 final class TunnelManager {
   static let shared = TunnelManager()
 
+  /// Longest pause between reconnect attempts. Retries never stop while the tunnel is wanted.
+  static let maxReconnectDelay = 300
+
   private(set) var tunnels: [Tunnel] = []
+  private(set) var profiles: [Profile] = []
   private(set) var status: [UUID: TunnelStatus] = [:]
   private(set) var lastError: [UUID: String] = [:]
+  /// Tail of ssh's output from the most recent attempt, for the error details view.
+  private(set) var lastOutput: [UUID: String] = [:]
   private(set) var loadError: String?
   private(set) var networkAvailable = true
+  /// Set by the popover to ask the Tunnels window to show a tunnel. The window clears it.
+  var pendingSelection: UUID?
+  var pendingProfileSelection: UUID?
 
   @ObservationIgnored private var processes: [UUID: Process] = [:]
+  @ObservationIgnored private var launching: Set<UUID> = []
   @ObservationIgnored private var stderrBuffers: [UUID: String] = [:]
   @ObservationIgnored private var wantsRunning: Set<UUID> = []
+  @ObservationIgnored private var attempts: [UUID: Int] = [:]
   @ObservationIgnored private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var saveTask: Task<Void, Never>?
   @ObservationIgnored private var sleepObservers: [NSObjectProtocol] = []
@@ -67,9 +78,21 @@ final class TunnelManager {
     tunnels.filter { status[$0.id]?.isActive == true }.count
   }
 
+  /// Group names in display order: named groups alphabetically, ungrouped last.
+  var groups: [String] {
+    let names = Set(tunnels.map(\.group)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    return names.filter { !$0.isEmpty } + (names.contains("") ? [""] : [])
+  }
+
+  func tunnels(inGroup group: String) -> [Tunnel] {
+    tunnels.filter { $0.group == group }
+  }
+
   private init() {
     do {
-      tunnels = try TunnelStorage.load()
+      let stored = try TunnelStorage.load()
+      tunnels = stored.tunnels
+      profiles = stored.profiles
     } catch {
       loadError = "Could not read tunnels.json: \(error.localizedDescription)"
     }
@@ -113,18 +136,6 @@ final class TunnelManager {
     })
   }
 
-  /// ssh sessions rarely survive sleep. Kill them cleanly and remember which ones to bring back.
-  private func suspendForSleep() {
-    guard AppSettings.shared.reconnectAfterWake else { return }
-    suspendedForSleep = wantsRunning
-    for id in wantsRunning {
-      reconnectTasks[id]?.cancel()
-      reconnectTasks[id] = nil
-      terminateProcess(for: id)
-      status[id] = .reconnecting(at: Date().addingTimeInterval(3))
-    }
-  }
-
   private func observeNetwork() {
     let monitor = NWPathMonitor()
     monitor.pathUpdateHandler = { path in
@@ -142,18 +153,28 @@ final class TunnelManager {
     networkAvailable = satisfied
     let ids = wantsRunning.subtracting(suspendedForSleep)
     if satisfied {
-      for id in ids where processes[id] == nil {
-        reconnectTasks[id]?.cancel()
-        reconnectTasks[id] = nil
+      for id in ids where processes[id] == nil && !launching.contains(id) {
+        cancelReconnect(id)
+        attempts[id] = 0
         launch(id)
       }
       return
     }
     for id in ids {
-      reconnectTasks[id]?.cancel()
-      reconnectTasks[id] = nil
+      cancelReconnect(id)
       terminateProcess(for: id)
       status[id] = .waitingForNetwork
+    }
+  }
+
+  /// ssh sessions rarely survive sleep. Kill them cleanly and remember which ones to bring back.
+  private func suspendForSleep() {
+    guard AppSettings.shared.reconnectAfterWake else { return }
+    suspendedForSleep = wantsRunning
+    for id in wantsRunning {
+      cancelReconnect(id)
+      terminateProcess(for: id)
+      status[id] = .reconnecting(at: Date().addingTimeInterval(3), attempt: 1)
     }
   }
 
@@ -163,6 +184,7 @@ final class TunnelManager {
     suspendedForSleep.removeAll()
     try? await Task.sleep(for: .seconds(3))
     for id in ids where wantsRunning.contains(id) {
+      attempts[id] = 0
       launch(id)
     }
   }
@@ -193,10 +215,8 @@ final class TunnelManager {
     copy.name += " copy"
     copy.autoConnect = false
     copy.importedFromSecurePipes = false
-    for kind in SecretKind.allCases {
-      if let secret = Keychain.read(kind, tunnelID: id) {
-        try? Keychain.write(secret, kind, tunnelID: copy.id)
-      }
+    if copy.profileID == nil {
+      copySecrets(from: id, to: copy.id)
     }
     return add(copy)
   }
@@ -206,7 +226,8 @@ final class TunnelManager {
     tunnels.removeAll { $0.id == id }
     status[id] = nil
     lastError[id] = nil
-    Keychain.deleteAll(tunnelID: id)
+    lastOutput[id] = nil
+    Keychain.deleteAll(ownerID: id)
     try? FileManager.default.removeItem(at: AppPaths.logFile(for: id))
     scheduleSave()
   }
@@ -215,6 +236,87 @@ final class TunnelManager {
     tunnels.move(fromOffsets: source, toOffset: destination)
     scheduleSave()
   }
+
+  // MARK: Profiles
+
+  func profile(_ id: UUID) -> Profile? {
+    profiles.first { $0.id == id }
+  }
+
+  func profile(for tunnel: Tunnel) -> Profile? {
+    tunnel.profileID.flatMap(profile)
+  }
+
+  /// The tunnel with its profile applied, which is what ssh actually runs.
+  func resolved(_ tunnel: Tunnel) -> Tunnel {
+    tunnel.applying(profile(for: tunnel))
+  }
+
+  /// Whose keychain items hold the passphrase and password for this tunnel.
+  func secretOwner(for tunnel: Tunnel) -> UUID {
+    profile(for: tunnel)?.id ?? tunnel.id
+  }
+
+  func tunnels(using profileID: UUID) -> [Tunnel] {
+    tunnels.filter { $0.profileID == profileID }
+  }
+
+  @discardableResult
+  func addProfile(_ profile: Profile = Profile()) -> Profile {
+    profiles.append(profile)
+    scheduleSave()
+    return profile
+  }
+
+  func updateProfile(_ profile: Profile) {
+    guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
+    guard profiles[index] != profile else { return }
+    profiles[index] = profile
+    scheduleSave()
+  }
+
+  /// Removes a profile. Tunnels that used it keep working: they get a copy of its settings and secrets.
+  func removeProfile(_ id: UUID) {
+    guard let profile = profile(id) else { return }
+    for index in tunnels.indices where tunnels[index].profileID == id {
+      tunnels[index] = tunnels[index].applying(profile)
+      tunnels[index].profileID = nil
+      copySecrets(from: id, to: tunnels[index].id)
+    }
+    profiles.removeAll { $0.id == id }
+    Keychain.deleteAll(ownerID: id)
+    scheduleSave()
+  }
+
+  /// Turns a tunnel's own server settings into a profile and links the tunnel to it.
+  @discardableResult
+  func createProfile(fromTunnel id: UUID) -> Profile? {
+    guard var tunnel = tunnel(id), tunnel.profileID == nil else { return nil }
+    let profile = Profile(
+      name: tunnel.username.isEmpty ? tunnel.host : "\(tunnel.username)@\(tunnel.host)",
+      host: tunnel.host,
+      port: tunnel.port,
+      username: tunnel.username,
+      identityFile: tunnel.identityFile
+    )
+    profiles.append(profile)
+    copySecrets(from: id, to: profile.id)
+    Keychain.deleteAll(ownerID: id)
+    tunnel.profileID = profile.id
+    update(tunnel)
+    scheduleSave()
+    return profile
+  }
+
+  private func copySecrets(from source: UUID, to destination: UUID) {
+    for kind in SecretKind.allCases {
+      if let secret = Keychain.read(kind, ownerID: source) {
+        try? Keychain.write(secret, kind, ownerID: destination)
+      }
+    }
+  }
+
+  // MARK: Persistence
 
   private func scheduleSave() {
     saveTask?.cancel()
@@ -230,7 +332,7 @@ final class TunnelManager {
     saveTask = nil
     guard !persistenceDisabled else { return }
     do {
-      try TunnelStorage.save(tunnels)
+      try TunnelStorage.save(StoredData(tunnels: tunnels, profiles: profiles))
       loadError = nil
     } catch {
       loadError = "Could not save tunnels.json: \(error.localizedDescription)"
@@ -242,36 +344,45 @@ final class TunnelManager {
   /// Replaces the in-memory state with sample tunnels for screenshots. Nothing is written to disk afterwards.
   func loadDemoData() {
     persistenceDisabled = true
-    let mongo = Tunnel(name: "Production Mongo", host: "db-bastion.example.com", username: "ec2-user",
-      identityFile: "~/.ssh/prod-bastion.pem", bindAddress: "localhost", bindPort: 27018, targetHost: "localhost",
-      targetPort: 27017, autoConnect: true)
-    let redis = Tunnel(name: "Staging Redis", host: "staging.example.com", username: "ubuntu",
-      identityFile: "~/.ssh/staging.pem", bindPort: 6380, targetHost: "10.0.4.12", targetPort: 6379, autoConnect: true)
-    let postgres = Tunnel(name: "Analytics Postgres", host: "analytics.example.com", port: 2222, username: "deploy",
-      bindPort: 5433, targetHost: "localhost", targetPort: 5432)
-    let socks = Tunnel(name: "Office SOCKS Proxy", type: .dynamic, host: "gw.example.com", username: "natan",
+    let bastion = Profile(name: "Production bastion", host: "bastion.example.com", username: "ec2-user",
+      identityFile: "~/.ssh/prod-bastion.pem")
+    let mongo = Tunnel(name: "Mongo primary", group: "Production", profileID: bastion.id,
+      bindPort: 27018, targetHost: "mongo-1.internal", targetPort: 27017, autoConnect: true)
+    let redis = Tunnel(name: "Redis", group: "Production", profileID: bastion.id,
+      bindPort: 6380, targetHost: "10.0.4.12", targetPort: 6379, autoConnect: true)
+    let rabbit = Tunnel(name: "RabbitMQ console", group: "Production", profileID: bastion.id,
+      bindPort: 15672, targetHost: "10.0.4.20", targetPort: 15672)
+    let postgres = Tunnel(name: "Analytics Postgres", group: "Staging", host: "staging.example.com", port: 2222,
+      username: "deploy", identityFile: "~/.ssh/staging.pem", bindPort: 5433, targetHost: "localhost", targetPort: 5432)
+    let socks = Tunnel(name: "Office SOCKS proxy", type: .dynamic, host: "gw.example.com", username: "deploy",
       bindPort: 1080, targetHost: "", targetPort: 0)
-    let expose = Tunnel(name: "Expose Dev Server", type: .remote, host: "demo.example.com", username: "deploy",
+    let expose = Tunnel(name: "Expose dev server", type: .remote, host: "demo.example.com", username: "deploy",
       bindAddress: "0.0.0.0", bindPort: 9000, targetHost: "localhost", targetPort: 3000)
-    tunnels = [mongo, redis, postgres, socks, expose]
+    profiles = [bastion]
+    tunnels = [mongo, redis, rabbit, postgres, socks, expose]
     status = [
       mongo.id: .connected,
       redis.id: .connected,
-      postgres.id: .disconnected,
-      socks.id: .failed("Local port 1080 is already in use."),
+      rabbit.id: .disconnected,
+      postgres.id: .reconnecting(at: Date().addingTimeInterval(40), attempt: 2),
+      socks.id: .failed("Local port 1080 is already in use by Secure Pipes (pid 1914)."),
       expose.id: .disconnected,
     ]
-    lastError = [socks.id: "Local port 1080 is already in use."]
+    lastError = [
+      socks.id: "Local port 1080 is already in use by Secure Pipes (pid 1914).",
+      postgres.id: "Connection timed out.",
+    ]
+    lastOutput = [postgres.id: "ssh: connect to host staging.example.com port 2222: Operation timed out\n"]
   }
 
   // MARK: Secrets
 
-  func secret(_ kind: SecretKind, for id: UUID) -> String {
-    Keychain.read(kind, tunnelID: id) ?? ""
+  func secret(_ kind: SecretKind, for ownerID: UUID) -> String {
+    Keychain.read(kind, ownerID: ownerID) ?? ""
   }
 
-  func setSecret(_ value: String, _ kind: SecretKind, for id: UUID) throws {
-    try Keychain.write(value, kind, tunnelID: id)
+  func setSecret(_ value: String, _ kind: SecretKind, for ownerID: UUID) throws {
+    try Keychain.write(value, kind, ownerID: ownerID)
   }
 
   // MARK: Import
@@ -282,7 +393,10 @@ final class TunnelManager {
     var summary = ImportSummary()
     for tunnel in imported {
       if let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) {
-        tunnels[index] = tunnel
+        var updated = tunnel
+        updated.group = tunnels[index].group
+        updated.profileID = tunnels[index].profileID
+        tunnels[index] = updated
         summary.updated += 1
       } else {
         tunnels.append(tunnel)
@@ -308,17 +422,16 @@ final class TunnelManager {
   func connect(_ id: UUID) {
     guard tunnel(id) != nil else { return }
     wantsRunning.insert(id)
-    reconnectTasks[id]?.cancel()
-    reconnectTasks[id] = nil
-    if processes[id]?.isRunning == true { return }
+    cancelReconnect(id)
+    attempts[id] = 0
+    if processes[id]?.isRunning == true || launching.contains(id) { return }
     launch(id)
   }
 
   func disconnect(_ id: UUID) {
     wantsRunning.remove(id)
     suspendedForSleep.remove(id)
-    reconnectTasks[id]?.cancel()
-    reconnectTasks[id] = nil
+    cancelReconnect(id)
     terminateProcess(for: id)
     status[id] = .disconnected
   }
@@ -331,12 +444,26 @@ final class TunnelManager {
     }
   }
 
+  func connectAll(inGroup group: String) {
+    for tunnel in tunnels(inGroup: group) { connect(tunnel.id) }
+  }
+
+  func disconnectAll(inGroup group: String) {
+    for tunnel in tunnels(inGroup: group) { disconnect(tunnel.id) }
+  }
+
   func disconnectAll() {
     for tunnel in tunnels {
       disconnect(tunnel.id)
     }
   }
 
+  private func cancelReconnect(_ id: UUID) {
+    reconnectTasks[id]?.cancel()
+    reconnectTasks[id] = nil
+  }
+
+  /// Runs the local port check off the main thread, then starts ssh unless something already listens there.
   private func launch(_ id: UUID) {
     guard let tunnel = tunnel(id) else { return }
     guard networkAvailable else {
@@ -345,11 +472,33 @@ final class TunnelManager {
     }
     lastError[id] = nil
     status[id] = .connecting
+    launching.insert(id)
+
+    let listensLocally = tunnel.listensLocally
+    let port = tunnel.bindPort
+    Task { @MainActor in
+      let usage = listensLocally ? await Task.detached { PortProbe.listener(on: port) }.value : nil
+      launching.remove(id)
+      guard wantsRunning.contains(id), processes[id] == nil else { return }
+      if let usage {
+        let message = "Local \(usage.description)."
+        lastOutput[id] = message + "\n"
+        scheduleRetryOrFail(id, message: message)
+        return
+      }
+      startProcess(for: id)
+    }
+  }
+
+  private func startProcess(for id: UUID) {
+    guard let stored = tunnel(id) else { return }
+    let tunnel = resolved(stored)
+    let owner = secretOwner(for: stored)
     stderrBuffers[id] = ""
 
     let payload = AskPassPayload(
-      passphrase: Keychain.read(.passphrase, tunnelID: id),
-      password: Keychain.read(.password, tunnelID: id)
+      passphrase: Keychain.read(.passphrase, ownerID: owner),
+      password: Keychain.read(.password, ownerID: owner)
     )
 
     let process = Process()
@@ -400,8 +549,7 @@ final class TunnelManager {
     do {
       try process.run()
     } catch {
-      status[id] = .failed(error.localizedDescription)
-      lastError[id] = error.localizedDescription
+      scheduleRetryOrFail(id, message: error.localizedDescription)
       return
     }
     processes[id] = process
@@ -420,6 +568,7 @@ final class TunnelManager {
       stderrBuffers[id, default: ""] += text
     } else if text.contains(SSHCommand.connectedMarker), status[id] == .connecting {
       status[id] = .connected
+      attempts[id] = 0
     }
   }
 
@@ -428,6 +577,7 @@ final class TunnelManager {
     processes[id] = nil
     let stderr = stderrBuffers[id] ?? ""
     let message = SSHCommand.friendlyError(from: stderr, exitStatus: process.terminationStatus)
+    lastOutput[id] = String(stderr.suffix(4000))
     log?.write(Data("[SecureTunnels] ssh exited with status \(process.terminationStatus)\n".utf8))
     try? log?.close()
 
@@ -435,16 +585,23 @@ final class TunnelManager {
       status[id] = .disconnected
       return
     }
+    scheduleRetryOrFail(id, message: message)
+  }
 
+  /// Retries forever with exponential backoff (interval, 2x, 4x ... capped at five minutes) while the tunnel is
+  /// wanted and allowed to reconnect. Otherwise it stays failed until the user connects again.
+  private func scheduleRetryOrFail(_ id: UUID, message: String) {
     lastError[id] = message
-    guard let tunnel = tunnel(id), tunnel.autoReconnect else {
+    guard let tunnel = tunnel(id), tunnel.autoReconnect, wantsRunning.contains(id) else {
       wantsRunning.remove(id)
       status[id] = .failed(message)
       return
     }
-
-    let delay = max(5, tunnel.reconnectInterval)
-    status[id] = .reconnecting(at: Date().addingTimeInterval(TimeInterval(delay)))
+    let attempt = (attempts[id] ?? 0) + 1
+    attempts[id] = attempt
+    let base = max(5, tunnel.reconnectInterval)
+    let delay = min(Self.maxReconnectDelay, base << min(attempt - 1, 10))
+    status[id] = .reconnecting(at: Date().addingTimeInterval(TimeInterval(delay)), attempt: attempt)
     reconnectTasks[id] = Task { @MainActor in
       try? await Task.sleep(for: .seconds(delay))
       guard !Task.isCancelled, self.wantsRunning.contains(id) else { return }
