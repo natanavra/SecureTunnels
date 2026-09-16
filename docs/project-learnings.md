@@ -69,3 +69,16 @@
   not clear its quarantine flag; the app removes the flag on its own helper with `removexattr` when it can.
 - `NWPathMonitor` reports `.requiresConnection` for on-demand VPN links. Treat only `.unsatisfied` as offline.
 - The connected marker can arrive split across two stdout reads; match on an accumulated buffer.
+
+## Cloudflare Tunnels (2026-09-16)
+
+- `URL.appendingPathComponent` percent-encodes `?`, so API paths with query strings must be built from the
+  full string. A unit test on the recorded request caught this before any network call.
+- cloudflared writes everything to stderr. A quick tunnel prints its URL inside a box of `|` characters and
+  "Registered tunnel connection" once per edge connection; both were confirmed against cloudflared 2026.9.1.
+- The tunnel token from `GET /cfd_tunnel/{id}/token` is passed as `TUNNEL_TOKEN` in the environment so it does
+  not show in `ps`. It is fetched on every connect and never stored.
+- Tunnels created with a local `config.yml` return an empty remote configuration, so they cannot be adopted;
+  the list shows them as having no ingress in the dashboard.
+- Adopting a tunnel must not call the provisioning path, which would overwrite the remote ingress with a
+  single rule. Adopted tunnels only fetch the token and run.

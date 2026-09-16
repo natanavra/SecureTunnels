@@ -4,6 +4,7 @@ import Security
 public enum SecretKind: String, CaseIterable, Sendable {
   case passphrase
   case password
+  case apiToken
 }
 
 public struct KeychainError: Error, LocalizedError {

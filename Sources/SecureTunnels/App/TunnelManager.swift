@@ -59,6 +59,8 @@ final class TunnelManager {
   private(set) var lastError: [UUID: String] = [:]
   /// Tail of ssh's output from the most recent attempt, for the error details view.
   private(set) var lastOutput: [UUID: String] = [:]
+  /// Public address of a connected Cloudflare tunnel (quick tunnels only know it once cloudflared prints it).
+  private(set) var publicURL: [UUID: String] = [:]
   private(set) var loadError: String?
   private(set) var networkAvailable = true
   /// Set by the popover to ask the main window to show a tunnel, a profile or a sidebar mode. The window clears it.
@@ -250,7 +252,11 @@ final class TunnelManager {
 
   func remove(_ id: UUID) {
     disconnect(id)
+    if let tunnel = tunnel(id), tunnel.type == .cloudflare {
+      deprovisionCloudflare(tunnel)
+    }
     tunnels.removeAll { $0.id == id }
+    publicURL[id] = nil
     status[id] = nil
     lastError[id] = nil
     lastOutput[id] = nil
@@ -385,12 +391,16 @@ final class TunnelManager {
       bindPort: 1080, targetHost: "", targetPort: 0)
     let expose = Tunnel(name: "Expose dev server", type: .remote, host: "demo.example.com", username: "deploy",
       bindAddress: "0.0.0.0", bindPort: 9000, targetHost: "localhost", targetPort: 3000)
+    let preview = Tunnel(name: "Preview site", type: .cloudflare, group: "Staging", bindPort: 3000,
+      cloudflare: CloudflareConfig(hostname: "preview.example.com", tunnelID: "demo"))
     profiles = [bastion]
-    tunnels = [mongo, redis, rabbit, postgres, socks, expose]
+    tunnels = [mongo, redis, rabbit, postgres, preview, socks, expose]
+    publicURL = [preview.id: "https://preview.example.com"]
     status = [
       mongo.id: .connected,
       redis.id: .connected,
       rabbit.id: .disconnected,
+      preview.id: .connected,
       postgres.id: .reconnecting(at: Date().addingTimeInterval(40), attempt: 2),
       socks.id: .failed("Local port 1080 is already in use by Secure Pipes (pid 1914)."),
       expose.id: .disconnected,
@@ -473,6 +483,7 @@ final class TunnelManager {
     cancelReconnect(id)
     terminateProcess(for: id)
     status[id] = .disconnected
+    if tunnel(id)?.cloudflare.isQuick == true { publicURL[id] = nil }
   }
 
   /// Applies new settings to a live tunnel by tearing the session down and starting it again.
@@ -525,6 +536,10 @@ final class TunnelManager {
     lastError[id] = nil
     status[id] = .connecting
     launching.insert(id)
+    if tunnel.type == .cloudflare {
+      launchCloudflare(id)
+      return
+    }
 
     let listensLocally = tunnel.listensLocally
     let port = tunnel.bindPort
@@ -579,6 +594,121 @@ final class TunnelManager {
     return "The passphrase helper is quarantined. Run: xattr -dr com.apple.quarantine \"\(Bundle.main.bundlePath)\""
   }
 
+  // MARK: Cloudflare tunnels
+
+  /// Provisions the hostname in the account when needed, then runs cloudflared with the tunnel token in its
+  /// environment. Quick tunnels skip the account entirely.
+  private func launchCloudflare(_ id: UUID) {
+    guard let tunnel = tunnel(id) else { return }
+    guard let binary = Cloudflared.locate() else {
+      launching.remove(id)
+      scheduleRetryOrFail(id, message: CloudflaredError.notInstalled.localizedDescription)
+      return
+    }
+    if tunnel.cloudflare.isQuick {
+      launching.remove(id)
+      publicURL[id] = nil
+      run(id: id, executable: binary, arguments: Cloudflared.quickTunnelArguments(serviceURL: tunnel.cloudflareServiceURL), environment: [:], stdin: nil)
+      return
+    }
+    let settings = CloudflareSettings.shared
+    guard let api = settings.api, !settings.accountID.isEmpty else {
+      launching.remove(id)
+      scheduleRetryOrFail(id, message: "Add a Cloudflare API token and pick an account in Settings > Cloudflare first.")
+      return
+    }
+    let hostname = tunnel.cloudflare.hostname.trimmingCharacters(in: .whitespaces).lowercased()
+    let serviceURL = tunnel.cloudflareServiceURL
+    let existing = tunnel.cloudflare
+    let accountID = settings.accountID
+    if existing.adopted, let remoteID = existing.tunnelID {
+      Task { @MainActor in
+        do {
+          let token = try await api.tunnelToken(accountID: accountID, tunnelID: remoteID)
+          launching.remove(id)
+          guard wantsRunning.contains(id), processes[id] == nil else { return }
+          publicURL[id] = hostname.isEmpty ? nil : "https://\(hostname)"
+          run(id: id, executable: binary, arguments: Cloudflared.namedTunnelArguments(), environment: ["TUNNEL_TOKEN": token], stdin: nil)
+        } catch {
+          launching.remove(id)
+          lastOutput[id] = error.localizedDescription + "\n"
+          scheduleRetryOrFail(id, message: "Cloudflare rejected the request: \(error.localizedDescription)")
+        }
+      }
+      return
+    }
+    let tunnelName = "securetunnels-" + tunnel.name.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+      + "-" + String(tunnel.id.uuidString.prefix(8)).lowercased()
+    Task { @MainActor in
+      do {
+        let provisioned = try await api.provision(accountID: accountID, hostname: hostname, serviceURL: serviceURL, tunnelName: tunnelName, existing: existing)
+        launching.remove(id)
+        guard wantsRunning.contains(id), processes[id] == nil, var current = self.tunnel(id) else { return }
+        current.cloudflare.tunnelID = provisioned.tunnelID
+        current.cloudflare.zoneID = provisioned.zoneID
+        current.cloudflare.dnsRecordID = provisioned.dnsRecordID
+        update(current)
+        publicURL[id] = "https://\(hostname)"
+        run(id: id, executable: binary, arguments: Cloudflared.namedTunnelArguments(), environment: ["TUNNEL_TOKEN": provisioned.token], stdin: nil)
+      } catch {
+        launching.remove(id)
+        lastOutput[id] = error.localizedDescription + "\n"
+        scheduleRetryOrFail(id, message: "Cloudflare setup failed: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  /// Creates a local tunnel entry for a tunnel that already exists in the account. Its ingress and DNS are
+  /// left to the dashboard; the app fetches the token and runs it.
+  @discardableResult
+  func adoptCloudflareTunnel(_ info: RemoteTunnelInfo) -> Tunnel? {
+    guard let first = info.ingress.first else { return nil }
+    let service = URL(string: first.service)
+    let scheme = service?.scheme ?? "http"
+    var tunnel = Tunnel(
+      name: info.tunnel.name.replacingOccurrences(of: "securetunnels-", with: ""),
+      type: .cloudflare,
+      bindAddress: service?.host ?? "localhost",
+      bindPort: service?.port ?? (scheme == "https" ? 443 : 80),
+      targetHost: "",
+      targetPort: 0,
+      autoReconnect: true,
+      cloudflare: CloudflareConfig(hostname: first.hostname ?? "", scheme: scheme, tunnelID: info.tunnel.id, adopted: true)
+    )
+    tunnel.name = tunnel.name.isEmpty ? (first.hostname ?? "Cloudflare tunnel") : tunnel.name
+    return add(tunnel)
+  }
+
+  func localTunnel(forRemoteID remoteID: String) -> Tunnel? {
+    tunnels.first { $0.type == .cloudflare && $0.cloudflare.tunnelID == remoteID }
+  }
+
+  /// After a remote tunnel is deleted in the dashboard section, unlink local entries so they re-create on connect.
+  func unlinkCloudflareTunnel(remoteID: String) {
+    for index in tunnels.indices where tunnels[index].cloudflare.tunnelID == remoteID {
+      disconnect(tunnels[index].id)
+      tunnels[index].cloudflare.tunnelID = nil
+      tunnels[index].cloudflare.dnsRecordID = nil
+      tunnels[index].cloudflare.zoneID = nil
+      tunnels[index].cloudflare.adopted = false
+    }
+    scheduleSave()
+  }
+
+  /// Best effort removal of the DNS record and the tunnel when the user deletes an exposed tunnel. Adopted
+  /// tunnels are left in the account because the app did not create them.
+  private func deprovisionCloudflare(_ tunnel: Tunnel) {
+    let config = tunnel.cloudflare
+    guard !config.adopted, let tunnelID = config.tunnelID, let api = CloudflareSettings.shared.api else { return }
+    let accountID = CloudflareSettings.shared.accountID
+    Task.detached {
+      if let zoneID = config.zoneID, let recordID = config.dnsRecordID {
+        try? await api.deleteDNS(zoneID: zoneID, recordID: recordID)
+      }
+      try? await api.deleteTunnel(accountID: accountID, tunnelID: tunnelID)
+    }
+  }
+
   private func startProcess(for id: UUID) {
     guard let stored = tunnel(id) else { return }
     let tunnel = resolved(stored)
@@ -598,13 +728,22 @@ final class TunnelManager {
       knownHostsFile: AppPaths.knownHostsFile.path,
       hasPassword: !(payload.password ?? "").isEmpty
     )
-
-    var environment = ProcessInfo.processInfo.environment
-    environment["SSH_ASKPASS"] = Self.askPassURL.path
-    environment["SSH_ASKPASS_REQUIRE"] = "force"
-    if environment["DISPLAY"] == nil {
-      environment["DISPLAY"] = "SecureTunnels:0"
+    var extra: [String: String] = ["SSH_ASKPASS": Self.askPassURL.path, "SSH_ASKPASS_REQUIRE": "force"]
+    if ProcessInfo.processInfo.environment["DISPLAY"] == nil {
+      extra["DISPLAY"] = "SecureTunnels:0"
     }
+    // Hand the secrets to the askpass helper through ssh's inherited stdin.
+    run(id: id, executable: process.executableURL!, arguments: process.arguments ?? [], environment: extra, stdin: try? JSONEncoder().encode(payload))
+  }
+
+  /// Starts a tunnel process (ssh or cloudflared), wires its output to the log and the status, and remembers it.
+  private func run(id: UUID, executable: URL, arguments: [String], environment extra: [String: String], stdin payload: Data?) {
+    guard let tunnel = tunnel(id) else { return }
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = arguments
+    var environment = ProcessInfo.processInfo.environment
+    for (key, value) in extra { environment[key] = value }
     process.environment = environment
 
     let stdin = Pipe()
@@ -613,8 +752,10 @@ final class TunnelManager {
     process.standardInput = stdin
     process.standardOutput = stdout
     process.standardError = stderr
+    stderrBuffers[id] = ""
+    stdoutBuffers[id] = ""
 
-    let log = openLog(for: id, tunnel: tunnel, arguments: process.arguments ?? [])
+    let log = openLog(for: id, tunnel: tunnel, arguments: [executable.lastPathComponent] + arguments)
 
     stdout.fileHandleForReading.readabilityHandler = { handle in
       let data = handle.availableData
@@ -645,9 +786,8 @@ final class TunnelManager {
     processes[id] = process
     SessionRegistry.register(pid: process.processIdentifier, tunnelID: id)
 
-    // Hand the secrets to the askpass helper through ssh's inherited stdin, then close so the helper sees EOF.
-    if let data = try? JSONEncoder().encode(payload) {
-      stdin.fileHandleForWriting.write(data)
+    if let payload {
+      stdin.fileHandleForWriting.write(payload)
     }
     try? stdin.fileHandleForWriting.close()
   }
@@ -657,6 +797,16 @@ final class TunnelManager {
     log?.write(Data(text.utf8))
     if isError {
       stderrBuffers[id, default: ""] += text
+      if let tunnel = tunnel(id), tunnel.type == .cloudflare {
+        let buffer = stderrBuffers[id, default: ""]
+        if publicURL[id] == nil, let url = Cloudflared.quickTunnelURL(in: buffer) {
+          publicURL[id] = url
+        }
+        if status[id] == .connecting, Cloudflared.isConnected(buffer) {
+          status[id] = .connected
+          attempts[id] = 0
+        }
+      }
       return
     }
     // The marker can arrive split across reads, so match on the accumulated text.
@@ -672,9 +822,13 @@ final class TunnelManager {
     guard processes[id] === process else { return }
     processes[id] = nil
     let stderr = stderrBuffers[id] ?? ""
-    let message = SSHCommand.friendlyError(from: stderr, exitStatus: process.terminationStatus)
+    let isCloudflare = tunnel(id)?.type == .cloudflare
+    let message = isCloudflare
+      ? Cloudflared.friendlyError(from: stderr, exitStatus: process.terminationStatus)
+      : SSHCommand.friendlyError(from: stderr, exitStatus: process.terminationStatus)
     lastOutput[id] = String(stderr.suffix(4000))
-    log?.write(Data("[SecureTunnels] ssh exited with status \(process.terminationStatus)\n".utf8))
+    if isCloudflare, tunnel(id)?.cloudflare.isQuick == true { publicURL[id] = nil }
+    log?.write(Data("[SecureTunnels] \(isCloudflare ? "cloudflared" : "ssh") exited with status \(process.terminationStatus)\n".utf8))
     try? log?.close()
 
     guard wantsRunning.contains(id), !suspendedForSleep.contains(id) else {

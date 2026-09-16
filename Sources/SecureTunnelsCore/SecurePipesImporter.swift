@@ -95,6 +95,8 @@ public enum SecurePipesImporter {
       tunnel.bindPort = int(config["localBindPort"]) ?? 0
       tunnel.targetHost = ""
       tunnel.targetPort = 0
+    case .cloudflare:
+      return nil
     }
     return tunnel
   }

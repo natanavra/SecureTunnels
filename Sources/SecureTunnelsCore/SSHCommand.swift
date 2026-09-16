@@ -46,6 +46,8 @@ public enum SSHCommand {
     case .dynamic:
       args.append("-D")
       args.append("\(tunnel.bindAddress):\(tunnel.bindPort)")
+    case .cloudflare:
+      break
     }
 
     args.append(tunnel.destination)

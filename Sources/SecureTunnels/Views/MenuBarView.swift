@@ -224,6 +224,13 @@ private struct TunnelMenuRow: View {
           .lineLimit(1)
       }
       Spacer(minLength: 8)
+      if let url = manager.publicURL[tunnel.id], status == .connected, let link = URL(string: url) {
+        Button { NSWorkspace.shared.open(link) } label: {
+          Image(systemName: "safari").foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Open \(url)")
+      }
       if isFailed || manager.lastError[tunnel.id] != nil {
         Button(action: showDetails) {
           Image(systemName: "exclamationmark.circle.fill")
@@ -260,6 +267,9 @@ private struct TunnelMenuRow: View {
     case .reconnecting, .waitingForNetwork:
       if let error = manager.lastError[tunnel.id] { return "\(status.label): \(error)" }
       return status.label
+    case .connected:
+      if let url = manager.publicURL[tunnel.id] { return url }
+      return tunnel.forwardDescription
     default: return tunnel.forwardDescription
     }
   }

@@ -49,7 +49,8 @@ enum SessionRegistry {
     guard (try? process.run()) != nil else { return false }
     let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     process.waitUntilExit()
-    return output.hasPrefix(SSHCommand.executable) && output.contains(SSHCommand.connectedMarker)
+    if output.hasPrefix(SSHCommand.executable) && output.contains(SSHCommand.connectedMarker) { return true }
+    return output.contains("cloudflared") && output.contains("--no-autoupdate")
   }
 
   private static func load() -> [Entry] {

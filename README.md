@@ -19,7 +19,11 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
 
 - Lists every tunnel in a menu bar popover with a live status dot and a switch to connect or disconnect.
   Tunnels can be grouped (Production, Staging, a client name) and each group connects or disconnects as one.
-- Local forwards, remote forwards and SOCKS proxies.
+- Local forwards, remote forwards and SOCKS proxies over ssh.
+- Cloudflare Tunnels that expose a local port on the internet: a temporary `trycloudflare.com` URL with no
+  account, or a hostname on your own domain. For the latter the app creates the named tunnel, its ingress and
+  the proxied DNS record through the Cloudflare API, runs `cloudflared` like any other tunnel, and removes
+  the tunnel and the record when you delete it.
 - Profiles bundle a server: host, port, username, identity file, key passphrase and password. Several tunnels
   can share one profile, or a tunnel can carry its own settings. Secrets live in the login keychain, not on
   disk.
@@ -47,7 +51,7 @@ Requires macOS 14 or newer.
 
 ### From the disk image
 
-1. Download `SecureTunnels-1.1.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
+1. Download `SecureTunnels-1.2.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
 2. Right-click SecureTunnels and choose Open, then Open again in the Gatekeeper dialog. This is needed once
    because the app is not notarized.
 3. Accept "Install SecureTunnels in your Applications folder?". The app copies itself to Applications, clears
@@ -76,7 +80,7 @@ Unzip it, right-click the app, choose Open, and accept the install prompt. The a
 Applications, clears quarantine, and trashes the extracted copy and the zip. Or do it by hand:
 
 ```bash
-unzip SecureTunnels-1.1.0.zip -d /Applications
+unzip SecureTunnels-1.2.0.zip -d /Applications
 xattr -dr com.apple.quarantine /Applications/SecureTunnels.app
 open /Applications/SecureTunnels.app
 ```
@@ -95,6 +99,24 @@ one-time right-click Open.
    when another process holds the port.
 5. If several tunnels go through the same server, open one of them and press "Save as Profile", then pick that
    profile under "Server" in the others.
+
+## Cloudflare Tunnels
+
+1. Settings > Cloudflare: install `cloudflared` with one click (the app downloads the official release into
+   its support folder) or let it find your Homebrew copy.
+2. Create an API token at dash.cloudflare.com/profile/api-tokens with Account > Cloudflare Tunnel > Edit and
+   Zone > DNS > Edit, paste it, press Save and Verify. Pick the account if the token sees more than one.
+3. New Tunnel, type Cloudflare Tunnel, local port, and a public hostname such as `preview.yourdomain.com`.
+   Leave the hostname empty for a temporary `trycloudflare.com` URL that needs no token.
+4. Connect. The public URL appears in the popover and in the editor with Copy and Open buttons.
+
+Settings > Cloudflare also lists every tunnel that already exists in the account, with its health and the
+hostnames it routes. Add brings one into SecureTunnels so it can be started and stopped from the menu bar;
+its ingress and DNS stay exactly as configured in the dashboard, the app only runs it. Delete removes the
+tunnel from Cloudflare together with the CNAME records that point at it, after a confirmation.
+
+The tunnel token cloudflared needs is passed through its environment, never on the command line, and is
+fetched from the API on every connect, so nothing secret is stored beyond your API token in the keychain.
 
 ## Build targets
 

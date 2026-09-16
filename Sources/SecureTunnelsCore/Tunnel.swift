@@ -4,6 +4,7 @@ public enum TunnelType: String, Codable, CaseIterable, Identifiable, Sendable {
   case local
   case remote
   case dynamic
+  case cloudflare
 
   public var id: String { rawValue }
 
@@ -12,8 +13,47 @@ public enum TunnelType: String, Codable, CaseIterable, Identifiable, Sendable {
     case .local: return "Local Forward"
     case .remote: return "Remote Forward"
     case .dynamic: return "SOCKS Proxy"
+    case .cloudflare: return "Cloudflare Tunnel"
     }
   }
+
+  /// Runs over ssh (as opposed to cloudflared).
+  public var usesSSH: Bool { self != .cloudflare }
+}
+
+/// Settings for a Cloudflare Tunnel that exposes a local service. `bindAddress`/`bindPort` on the tunnel are the
+/// local service; `hostname` is the public name on one of the account's zones, empty for a quick tunnel.
+public struct CloudflareConfig: Codable, Equatable, Hashable, Sendable {
+  public var hostname: String
+  public var scheme: String
+  /// Filled in once the app has created the resources in the Cloudflare account.
+  public var tunnelID: String?
+  public var zoneID: String?
+  public var dnsRecordID: String?
+  /// True for a tunnel that already existed in the account. Its ingress and DNS stay as configured in the
+  /// dashboard; the app only runs it.
+  public var adopted: Bool
+
+  public init(hostname: String = "", scheme: String = "http", tunnelID: String? = nil, zoneID: String? = nil, dnsRecordID: String? = nil, adopted: Bool = false) {
+    self.hostname = hostname
+    self.scheme = scheme
+    self.tunnelID = tunnelID
+    self.zoneID = zoneID
+    self.dnsRecordID = dnsRecordID
+    self.adopted = adopted
+  }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    hostname = try c.decodeIfPresent(String.self, forKey: .hostname) ?? ""
+    scheme = try c.decodeIfPresent(String.self, forKey: .scheme) ?? "http"
+    tunnelID = try c.decodeIfPresent(String.self, forKey: .tunnelID)
+    zoneID = try c.decodeIfPresent(String.self, forKey: .zoneID)
+    dnsRecordID = try c.decodeIfPresent(String.self, forKey: .dnsRecordID)
+    adopted = try c.decodeIfPresent(Bool.self, forKey: .adopted) ?? false
+  }
+
+  public var isQuick: Bool { hostname.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
 /// One SSH tunnel definition. Secrets (key passphrase, password) live in the Keychain, keyed by `id`.
@@ -47,6 +87,7 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
   public var compression: Bool
   public var strictHostKeyChecking: Bool
   public var importedFromSecurePipes: Bool
+  public var cloudflare: CloudflareConfig
 
   public init(
     id: UUID = UUID(),
@@ -69,7 +110,8 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
     serverAliveCountMax: Int = 5,
     compression: Bool = false,
     strictHostKeyChecking: Bool = false,
-    importedFromSecurePipes: Bool = false
+    importedFromSecurePipes: Bool = false,
+    cloudflare: CloudflareConfig = CloudflareConfig()
   ) {
     self.id = id
     self.name = name
@@ -92,6 +134,7 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
     self.compression = compression
     self.strictHostKeyChecking = strictHostKeyChecking
     self.importedFromSecurePipes = importedFromSecurePipes
+    self.cloudflare = cloudflare
   }
 
   /// Tolerant decoding so tunnels.json files written by older versions keep loading.
@@ -119,6 +162,7 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
     compression = try c.decodeIfPresent(Bool.self, forKey: .compression) ?? defaults.compression
     strictHostKeyChecking = try c.decodeIfPresent(Bool.self, forKey: .strictHostKeyChecking) ?? defaults.strictHostKeyChecking
     importedFromSecurePipes = try c.decodeIfPresent(Bool.self, forKey: .importedFromSecurePipes) ?? false
+    cloudflare = try c.decodeIfPresent(CloudflareConfig.self, forKey: .cloudflare) ?? CloudflareConfig()
   }
 
   /// A copy whose connection fields come from `profile`. With nil it is the tunnel itself.
@@ -141,11 +185,22 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
       || targetHost != other.targetHost || targetPort != other.targetPort
       || serverAliveInterval != other.serverAliveInterval || serverAliveCountMax != other.serverAliveCountMax
       || compression != other.compression || strictHostKeyChecking != other.strictHostKeyChecking
+      || cloudflare.hostname != other.cloudflare.hostname || cloudflare.scheme != other.cloudflare.scheme
+  }
+
+  /// The local address cloudflared forwards to, for example http://localhost:3000.
+  public var cloudflareServiceURL: String {
+    "\(cloudflare.scheme)://\(bindAddress):\(bindPort)"
   }
 
   /// Whether a local listening port is involved, which is what conflict detection checks.
   public var listensLocally: Bool {
     type == .local || type == .dynamic
+  }
+
+  /// The public address once the tunnel is provisioned (quick tunnels only know it after connecting).
+  public var cloudflarePublicURL: String? {
+    cloudflare.isQuick ? nil : "https://\(cloudflare.hostname)"
   }
 
   public var destination: String {
@@ -157,6 +212,10 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
     case .local: return "\(bindAddress):\(bindPort) → \(targetHost):\(targetPort)"
     case .remote: return "server \(bindAddress):\(bindPort) → \(targetHost):\(targetPort)"
     case .dynamic: return "SOCKS on \(bindAddress):\(bindPort)"
+    case .cloudflare:
+      return cloudflare.isQuick
+        ? "\(bindAddress):\(bindPort) → temporary trycloudflare.com URL"
+        : "\(bindAddress):\(bindPort) → https://\(cloudflare.hostname)"
     }
   }
 

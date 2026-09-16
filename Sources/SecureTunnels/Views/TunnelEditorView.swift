@@ -54,6 +54,7 @@ struct TunnelEditorView: View {
         }
       }
 
+      if tunnel.type.usesSSH {
       Section("SSH Server") {
         Picker("Server", selection: $tunnel.profileID) {
           Text("Custom settings").tag(UUID?.none)
@@ -112,6 +113,7 @@ struct TunnelEditorView: View {
           }
         }
       }
+      }
 
       Section(forwardTitle) {
         switch tunnel.type {
@@ -128,6 +130,18 @@ struct TunnelEditorView: View {
         case .dynamic:
           TextField("Local address", text: $tunnel.bindAddress, prompt: Text("localhost"))
           TextField("Local port", value: $tunnel.bindPort, format: .number.grouping(.never))
+        case .cloudflare:
+          Picker("Local service", selection: $tunnel.cloudflare.scheme) {
+            Text("http").tag("http")
+            Text("https").tag("https")
+          }
+          TextField("Local host", text: $tunnel.bindAddress, prompt: Text("localhost"))
+          TextField("Local port", value: $tunnel.bindPort, format: .number.grouping(.never))
+          TextField("Public hostname", text: $tunnel.cloudflare.hostname, prompt: Text("Empty for a temporary trycloudflare.com URL"))
+            .autocorrectionDisabled()
+          Text(cloudflareHint)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         if let portUsage, tunnel.listensLocally, status != .connected {
           Label("Local \(portUsage.description). Connecting will fail until it is free.", systemImage: "exclamationmark.triangle.fill")
@@ -145,15 +159,17 @@ struct TunnelEditorView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        Stepper("Keep-alive every \(tunnel.serverAliveInterval) seconds", value: $tunnel.serverAliveInterval, in: 5...300, step: 5)
-        Stepper("Give up after \(tunnel.serverAliveCountMax) missed keep-alives", value: $tunnel.serverAliveCountMax, in: 1...20)
-        Toggle("Compress data", isOn: $tunnel.compression)
-        Toggle("Strict host key checking", isOn: $tunnel.strictHostKeyChecking)
-        Text(tunnel.strictHostKeyChecking
-          ? "Only servers already listed in the app's known_hosts file are accepted."
-          : "New servers are trusted on first connect. A changed host key is always rejected.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        if tunnel.type.usesSSH {
+          Stepper("Keep-alive every \(tunnel.serverAliveInterval) seconds", value: $tunnel.serverAliveInterval, in: 5...300, step: 5)
+          Stepper("Give up after \(tunnel.serverAliveCountMax) missed keep-alives", value: $tunnel.serverAliveCountMax, in: 1...20)
+          Toggle("Compress data", isOn: $tunnel.compression)
+          Toggle("Strict host key checking", isOn: $tunnel.strictHostKeyChecking)
+          Text(tunnel.strictHostKeyChecking
+            ? "Only servers already listed in the app's known_hosts file are accepted."
+            : "New servers are trusted on first connect. A changed host key is always rejected.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
 
       Section("Status") {
@@ -161,6 +177,26 @@ struct TunnelEditorView: View {
           HStack(spacing: 6) {
             StatusDot(status: status, size: 8)
             Text(status.label)
+          }
+        }
+        if tunnel.type == .cloudflare, let url = manager.publicURL[tunnel.id] ?? tunnel.cloudflarePublicURL {
+          LabeledContent("Public URL") {
+            HStack(spacing: 8) {
+              Text(url).textSelection(.enabled)
+              Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+              } label: { Image(systemName: "doc.on.doc") }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Copy the public URL")
+              Button {
+                if let link = URL(string: url) { NSWorkspace.shared.open(link) }
+              } label: { Image(systemName: "safari") }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Open the public URL in the browser")
+            }
           }
         }
         if let error = manager.lastError[tunnel.id] {
@@ -287,10 +323,35 @@ struct TunnelEditorView: View {
     case .local: return "Local Forward"
     case .remote: return "Remote Forward"
     case .dynamic: return "SOCKS Proxy"
+    case .cloudflare: return "Cloudflare Tunnel"
     }
   }
 
+  private var cloudflareHint: String {
+    let settings = CloudflareSettings.shared
+    if tunnel.cloudflare.adopted {
+      return "This tunnel already existed in \(settings.accountName). Its ingress rules and DNS records are managed in the Cloudflare dashboard; SecureTunnels only runs it. Changing the hostname or port here has no effect on the routing."
+    }
+    if tunnel.cloudflare.isQuick {
+      return "Without a hostname cloudflared opens a temporary public URL that changes on every connect. No Cloudflare account is needed."
+    }
+    if !settings.hasToken || settings.accountID.isEmpty {
+      return "A hostname on one of your zones needs the API token and account under Settings > Cloudflare."
+    }
+    if let zone = CloudflareAPI.zone(for: tunnel.cloudflare.hostname, in: settings.zones) {
+      return "On first connect the app creates a named tunnel in \(settings.accountName), routes it, and adds a proxied CNAME in the \(zone.name) zone. Removing the tunnel removes both."
+    }
+    return settings.zones.isEmpty
+      ? "On first connect the app creates the tunnel and the DNS record in the matching zone."
+      : "No zone in \(settings.accountName) matches this hostname. Zones: \(settings.zones.map(\.name).joined(separator: ", "))."
+  }
+
   private var commandPreview: String {
+    if tunnel.type == .cloudflare {
+      return tunnel.cloudflare.isQuick
+        ? "cloudflared tunnel --url \(tunnel.cloudflareServiceURL)"
+        : "cloudflared tunnel run  (ingress \(tunnel.cloudflare.hostname) → \(tunnel.cloudflareServiceURL))"
+    }
     let resolved = manager.resolved(tunnel)
     let args = SSHCommand.arguments(for: resolved, knownHostsFile: "known_hosts", hasPassword: !password.isEmpty)
     return (["ssh"] + args.filter { !$0.hasPrefix("-o") }).joined(separator: " ")
