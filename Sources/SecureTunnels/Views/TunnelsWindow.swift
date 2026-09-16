@@ -42,20 +42,15 @@ struct TunnelsWindow: View {
               systemImage: manager.status(of: id).isActive ? "stop.fill" : "play.fill"
             )
           }
+          .labelStyle(.titleAndIcon)
           .help(manager.status(of: id).isActive ? "Disconnect this tunnel" : "Save and connect this tunnel")
         }
-        Button {
-          importFromSecurePipes()
-        } label: {
-          Label("Import from Secure Pipes", systemImage: "square.and.arrow.down")
-        }
-        .help("Import connections from Secure Pipes")
-        .disabled(!SecurePipesImporter.isAvailable())
         Button {
           requestChange { mode = .settings }
         } label: {
           Label("Settings", systemImage: "gearshape")
         }
+        .labelStyle(.titleAndIcon)
         .help("Launch at login, import and storage")
       }
     }

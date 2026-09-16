@@ -4,6 +4,10 @@ import SecureTunnelsCore
 struct MenuBarView: View {
   @Environment(TunnelManager.self) private var manager
   @Environment(\.openWindow) private var openWindow
+  @AppStorage("menuShowsAllTunnels") private var showAll = false
+
+  /// How many rows the compact list shows before "Show all".
+  static let compactLimit = 5
 
   var body: some View {
     VStack(spacing: 0) {
@@ -11,7 +15,7 @@ struct MenuBarView: View {
       Divider()
       if manager.tunnels.isEmpty {
         emptyState
-      } else {
+      } else if showAll || manager.tunnels.count <= Self.compactLimit {
         ScrollView {
           VStack(spacing: 1) {
             ForEach(manager.groups, id: \.self) { group in
@@ -26,11 +30,48 @@ struct MenuBarView: View {
           .padding(6)
         }
         .frame(maxHeight: 460)
+      } else {
+        VStack(spacing: 1) {
+          ForEach(compactTunnels) { tunnel in
+            TunnelMenuRow(tunnel: tunnel, showDetails: { showDetails(tunnel.id) })
+          }
+        }
+        .padding(6)
+      }
+      if manager.tunnels.count > Self.compactLimit {
+        Divider()
+        MenuRowButton(
+          title: showAll ? "Show fewer" : "Show all \(manager.tunnels.count) tunnels",
+          systemImage: showAll ? "chevron.up" : "chevron.down",
+          help: showAll ? "Back to the short list: active tunnels first, then \(Self.compactLimit) at most" : "List every tunnel by group"
+        ) {
+          showAll.toggle()
+        }
+        .padding(6)
       }
       Divider()
       footer
     }
     .frame(width: 320)
+  }
+
+  /// Active tunnels first (connected, then connecting or retrying), then the rest in sidebar order, cut to the limit.
+  private var compactTunnels: [Tunnel] {
+    let ordered = manager.groups.flatMap { manager.tunnels(inGroup: $0) }
+    let ranked = ordered.enumerated().sorted { lhs, rhs in
+      let l = rank(lhs.element), r = rank(rhs.element)
+      return l != r ? l < r : lhs.offset < rhs.offset
+    }
+    return Array(ranked.map(\.element).prefix(Self.compactLimit))
+  }
+
+  private func rank(_ tunnel: Tunnel) -> Int {
+    switch manager.status(of: tunnel.id) {
+    case .connected: return 0
+    case .connecting, .reconnecting, .waitingForNetwork: return 1
+    case .failed: return 2
+    case .disconnected: return 3
+    }
   }
 
   private var header: some View {
