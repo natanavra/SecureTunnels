@@ -5,6 +5,9 @@ struct MenuBarView: View {
   @Environment(TunnelManager.self) private var manager
   @Environment(\.openWindow) private var openWindow
   @AppStorage("menuShowsAllTunnels") private var showAll = false
+  /// The compact order is decided when the popover opens and kept until it closes, so rows do not jump
+  /// around while the user is switching tunnels on and off.
+  @State private var compactOrder: [UUID] = []
 
   /// How many rows the compact list shows before "Show all".
   static let compactLimit = 5
@@ -53,16 +56,25 @@ struct MenuBarView: View {
       footer
     }
     .frame(width: 320)
+    .onAppear { compactOrder = rankedTunnelIDs() }
   }
 
-  /// Active tunnels first (connected, then connecting or retrying), then the rest in sidebar order, cut to the limit.
+  /// The rows in the order frozen at open time. Tunnels added since then go last; removed ones drop out.
   private var compactTunnels: [Tunnel] {
+    var ids = compactOrder.filter { manager.tunnel($0) != nil }
+    if ids.isEmpty { ids = rankedTunnelIDs() }
+    for id in rankedTunnelIDs() where !ids.contains(id) { ids.append(id) }
+    return ids.prefix(Self.compactLimit).compactMap(manager.tunnel)
+  }
+
+  /// Active tunnels first (connected, then connecting or retrying), then failed, then idle, in sidebar order.
+  private func rankedTunnelIDs() -> [UUID] {
     let ordered = manager.groups.flatMap { manager.tunnels(inGroup: $0) }
     let ranked = ordered.enumerated().sorted { lhs, rhs in
       let l = rank(lhs.element), r = rank(rhs.element)
       return l != r ? l < r : lhs.offset < rhs.offset
     }
-    return Array(ranked.map(\.element).prefix(Self.compactLimit))
+    return ranked.map(\.element.id)
   }
 
   private func rank(_ tunnel: Tunnel) -> Int {
