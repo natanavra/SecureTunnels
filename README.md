@@ -37,7 +37,7 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
 - Edits are explicit: change a tunnel or profile, then Save (Command-S) or Revert. Switching away with unsaved
   edits asks first. Connect saves for you, and saving a connected tunnel (or a profile in use) reconnects it
   with the new settings. Renaming or regrouping does not.
-- One window for everything: Tunnels, Profiles and Settings are modes in the sidebar. The app has no Dock
+- One window for everything: Tunnels, Profiles, Cloudflare and Settings are modes in the sidebar. The app has no Dock
   icon until that window is open, and drops it again when the window closes.
 - Imports Secure Pipes connections on first launch and on demand from Settings. An import only adds
   connections you do not have yet and never removes anything; overwriting previously imported tunnels with
@@ -110,10 +110,11 @@ one-time right-click Open.
    Leave the hostname empty for a temporary `trycloudflare.com` URL that needs no token.
 4. Connect. The public URL appears in the popover and in the editor with Copy and Open buttons.
 
-Settings > Cloudflare also lists every tunnel that already exists in the account, with its health and the
-hostnames it routes. Add brings one into SecureTunnels so it can be started and stopped from the menu bar;
-its ingress and DNS stay exactly as configured in the dashboard, the app only runs it. Delete removes the
-tunnel from Cloudflare together with the CNAME records that point at it, after a confirmation.
+The Cloudflare mode in the sidebar lists every tunnel that already exists in the account, with its health,
+edge connections and the hostnames it routes. Add brings one into SecureTunnels so it can be started and
+stopped from the menu bar; its ingress and DNS stay exactly as configured in the dashboard, the app only
+runs it. Delete removes the tunnel from Cloudflare together with the CNAME records that point at it, after a
+confirmation. Settings > Cloudflare holds only the cloudflared install, the API token and the account.
 
 The tunnel token cloudflared needs is passed through its environment, never on the command line, and is
 fetched from the API on every connect, so nothing secret is stored beyond your API token in the keychain.

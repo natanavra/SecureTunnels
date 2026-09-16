@@ -4,6 +4,7 @@ import SecureTunnelsCore
 enum SidebarMode: String, CaseIterable, Identifiable {
   case tunnels = "Tunnels"
   case profiles = "Profiles"
+  case cloudflare = "Cloudflare"
   case settings = "Settings"
   var id: String { rawValue }
 }
@@ -15,6 +16,7 @@ struct TunnelsWindow: View {
   @State private var selection: UUID?
   @State private var profileSelection: UUID?
   @State private var settingsSection: SettingsSection? = .startup
+  @State private var remoteSelection: String?
   @State private var confirmDelete = false
   @State private var importFlow = SecurePipesImportFlow()
   @State private var pendingChange: (() -> Void)?
@@ -133,12 +135,13 @@ struct TunnelsWindow: View {
       switch mode {
       case .tunnels: tunnelList
       case .profiles: profileList
+      case .cloudflare: RemoteTunnelSidebar(selection: $remoteSelection)
       case .settings: settingsList
       }
     }
     .navigationSplitViewColumnWidth(min: 290, ideal: 310, max: 420)
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      if mode != .settings {
+      if mode == .tunnels || mode == .profiles {
         bottomBar
       }
     }
@@ -261,7 +264,7 @@ struct TunnelsWindow: View {
       switch mode {
       case .tunnels: selection = manager.add().id
       case .profiles: profileSelection = manager.addProfile().id
-      case .settings: break
+      case .cloudflare, .settings: break
       }
     }
   }
@@ -270,7 +273,7 @@ struct TunnelsWindow: View {
     switch mode {
     case .tunnels: return "Remove “\(selection.flatMap(manager.tunnel)?.name ?? "")”?"
     case .profiles: return "Remove profile “\(profileSelection.flatMap(manager.profile)?.name ?? "")”?"
-    case .settings: return ""
+    case .cloudflare, .settings: return ""
     }
   }
 
@@ -283,7 +286,7 @@ struct TunnelsWindow: View {
       return count == 0
         ? "No tunnel uses this profile."
         : "\(count) tunnel(s) use this profile. They keep a copy of its settings and secrets."
-    case .settings:
+    case .cloudflare, .settings:
       return ""
     }
   }
@@ -301,7 +304,7 @@ struct TunnelsWindow: View {
         manager.removeProfile(id)
         profileSelection = nil
       }
-    case .settings:
+    case .cloudflare, .settings:
       break
     }
   }
@@ -340,6 +343,8 @@ struct TunnelsWindow: View {
           Text("A profile is a server plus its credentials. Tunnels that use it share the host, user, key and secrets.")
         }
       }
+    case .cloudflare:
+      RemoteTunnelDetail(selection: $remoteSelection)
     case .settings:
       SettingsView(section: settingsSection ?? .startup)
     }
