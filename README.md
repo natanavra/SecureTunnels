@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/screenshots/icon.png" width="128" alt="SecureTunnels icon">
+</p>
+
 # SecureTunnels
 
 SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Secure Pipes: it runs

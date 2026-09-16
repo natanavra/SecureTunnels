@@ -5,7 +5,24 @@ import AppKit
 // margins. Without one, a shield on a dark blue tile is drawn instead.
 let output = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon.icns"
 let sourcePath = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "Resources/icon-source.png"
-let source = FileManager.default.fileExists(atPath: sourcePath) ? NSImage(contentsOfFile: sourcePath) : nil
+let source = FileManager.default.fileExists(atPath: sourcePath) ? opaqueImage(atPath: sourcePath) : nil
+
+/// Generated artwork often carries a noisy alpha channel that turns into blotches when composited. Keep the straight
+/// colour channels and force every pixel opaque.
+func opaqueImage(atPath path: String) -> NSImage? {
+  guard let imageSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+    let cg = CGImageSourceCreateImageAtIndex(imageSource, 0, nil),
+    let data = cg.dataProvider?.data as Data?
+  else { return nil }
+  guard cg.bitsPerPixel == 32 else { return NSImage(cgImage: cg, size: .zero) }
+  var pixels = [UInt8](data)
+  for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
+  guard let context = CGContext(
+    data: &pixels, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.bytesPerRow,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+  ), let opaque = context.makeImage() else { return nil }
+  return NSImage(cgImage: opaque, size: NSSize(width: cg.width, height: cg.height))
+}
 let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("SecureTunnels-\(getpid()).iconset")
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 
