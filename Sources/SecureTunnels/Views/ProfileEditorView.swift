@@ -108,7 +108,9 @@ struct ProfileEditorView: View {
     password = savedPassword
   }
 
+  /// Persists the draft and reconnects every live tunnel that uses this profile.
   private func save() {
+    let changed = draft != stored || passphrase != savedPassphrase || password != savedPassword
     manager.updateProfile(draft)
     do {
       try manager.setSecret(passphrase, .passphrase, for: profile.id)
@@ -118,6 +120,9 @@ struct ProfileEditorView: View {
       secretError = nil
     } catch {
       secretError = "Could not save to keychain: \(error.localizedDescription)"
+    }
+    if changed {
+      manager.restartTunnels(using: profile.id)
     }
   }
 

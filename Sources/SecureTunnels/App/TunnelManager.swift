@@ -475,6 +475,19 @@ final class TunnelManager {
     status[id] = .disconnected
   }
 
+  /// Applies new settings to a live tunnel by tearing the session down and starting it again.
+  func restart(_ id: UUID) {
+    guard status(of: id).isActive else { return }
+    disconnect(id)
+    connect(id)
+  }
+
+  func restartTunnels(using profileID: UUID) {
+    for tunnel in tunnels(using: profileID) {
+      restart(tunnel.id)
+    }
+  }
+
   func toggle(_ id: UUID) {
     if status(of: id).isActive {
       disconnect(id)

@@ -31,7 +31,8 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
 - Shows why a connection failed: a plain-language error in the popover, and the ssh output of the last attempt
   in the tunnel editor with a Copy button.
 - Edits are explicit: change a tunnel or profile, then Save (Command-S) or Revert. Switching away with unsaved
-  edits asks first. Connect saves for you.
+  edits asks first. Connect saves for you, and saving a connected tunnel (or a profile in use) reconnects it
+  with the new settings. Renaming or regrouping does not.
 - One window for everything: Tunnels, Profiles and Settings are modes in the sidebar. The app has no Dock
   icon until that window is open, and drops it again when the window closes.
 - Imports Secure Pipes connections on first launch and on demand from Settings. An import only adds

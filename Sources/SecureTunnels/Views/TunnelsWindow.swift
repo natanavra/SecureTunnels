@@ -387,7 +387,7 @@ struct UnsavedChangesBar: View {
       Button { save() } label: { Label("Save", systemImage: "checkmark").frame(minWidth: 64) }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut("s")
-        .help("Save the changes (Command-S)")
+        .help("Save the changes (Command-S). Connected tunnels reconnect with the new settings.")
     }
     .padding(10)
     .background(.bar)

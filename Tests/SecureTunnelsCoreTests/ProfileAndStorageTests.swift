@@ -41,6 +41,25 @@ final class ProfileAndStorageTests: XCTestCase {
     XCTAssertEqual(tunnel.applying(nil), tunnel)
   }
 
+  func testConnectionDiffersIgnoresNameGroupAndAutoConnect() {
+    let base = Tunnel(name: "A", group: "G", host: "h", bindPort: 1, targetPort: 2)
+    var cosmetic = base
+    cosmetic.name = "B"
+    cosmetic.group = "Other"
+    cosmetic.autoConnect = true
+    XCTAssertFalse(cosmetic.connectionDiffers(from: base))
+
+    var moved = base
+    moved.bindPort = 3
+    XCTAssertTrue(moved.connectionDiffers(from: base))
+    var rehosted = base
+    rehosted.host = "other"
+    XCTAssertTrue(rehosted.connectionDiffers(from: base))
+    var relinked = base
+    relinked.profileID = UUID()
+    XCTAssertTrue(relinked.connectionDiffers(from: base))
+  }
+
   func testProfileSummary() {
     XCTAssertEqual(Profile(host: "h", username: "u").summary, "u@h")
     XCTAssertEqual(Profile(host: "h", port: 2222, username: "").summary, "h:2222")

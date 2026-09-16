@@ -132,6 +132,17 @@ public struct Tunnel: Identifiable, Codable, Equatable, Hashable, Sendable {
     return copy
   }
 
+  /// True when the two versions differ in something ssh is started with, so a running tunnel must be restarted.
+  /// Name, group and the auto-connect flag do not count.
+  public func connectionDiffers(from other: Tunnel) -> Bool {
+    type != other.type || profileID != other.profileID
+      || host != other.host || port != other.port || username != other.username || identityFile != other.identityFile
+      || bindAddress != other.bindAddress || bindPort != other.bindPort
+      || targetHost != other.targetHost || targetPort != other.targetPort
+      || serverAliveInterval != other.serverAliveInterval || serverAliveCountMax != other.serverAliveCountMax
+      || compression != other.compression || strictHostKeyChecking != other.strictHostKeyChecking
+  }
+
   /// Whether a local listening port is involved, which is what conflict detection checks.
   public var listensLocally: Bool {
     type == .local || type == .dynamic

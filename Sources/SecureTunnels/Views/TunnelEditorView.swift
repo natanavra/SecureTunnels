@@ -250,17 +250,25 @@ struct TunnelEditorView: View {
     manager.editorDiscard = dirty ? revert : nil
   }
 
+  /// Persists the draft. A live tunnel whose connection settings changed is reconnected with the new values.
   private func save() {
+    let before = current
+    var needsRestart = tunnel.connectionDiffers(from: before)
     manager.update(tunnel)
-    guard tunnel.profileID == nil else { return }
-    do {
-      try manager.setSecret(passphrase, .passphrase, for: tunnel.id)
-      try manager.setSecret(password, .password, for: tunnel.id)
-      savedPassphrase = passphrase
-      savedPassword = password
-      secretError = nil
-    } catch {
-      secretError = "Could not save to keychain: \(error.localizedDescription)"
+    if tunnel.profileID == nil {
+      if passphrase != savedPassphrase || password != savedPassword { needsRestart = true }
+      do {
+        try manager.setSecret(passphrase, .passphrase, for: tunnel.id)
+        try manager.setSecret(password, .password, for: tunnel.id)
+        savedPassphrase = passphrase
+        savedPassword = password
+        secretError = nil
+      } catch {
+        secretError = "Could not save to keychain: \(error.localizedDescription)"
+      }
+    }
+    if needsRestart {
+      manager.restart(tunnel.id)
     }
   }
 
