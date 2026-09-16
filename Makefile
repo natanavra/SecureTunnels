@@ -1,7 +1,7 @@
-VERSION ?= 1.0.0
+VERSION ?= 1.1.0
 export VERSION
 
-.PHONY: build debug run test install clean icon snapshots screenshots dist
+.PHONY: build debug run test install clean icon snapshots screenshots dist dmg
 
 build:
 	scripts/bundle.sh release
@@ -33,10 +33,13 @@ screenshots: debug
 	build/SecureTunnels.app/Contents/MacOS/SecureTunnels --snapshot docs/screenshots/dark --demo --dark
 	@ls docs/screenshots docs/screenshots/dark
 
-dist: build
+dist: build dmg
 	rm -f build/SecureTunnels-$(VERSION).zip
 	ditto -c -k --keepParent build/SecureTunnels.app build/SecureTunnels-$(VERSION).zip
-	@ls -la build/SecureTunnels-$(VERSION).zip
+	@ls -la build/SecureTunnels-$(VERSION).zip build/SecureTunnels-$(VERSION).dmg
+
+dmg: build
+	scripts/make-dmg.sh
 
 clean:
 	rm -rf .build build

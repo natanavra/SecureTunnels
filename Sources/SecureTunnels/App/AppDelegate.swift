@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
     if SnapshotRunner.runIfRequested() { return }
+    if Installer.offerInstallIfNeeded() { return }
     TunnelManager.shared.start()
     observeWindows()
     observeSignals()

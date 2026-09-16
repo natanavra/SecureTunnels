@@ -45,8 +45,17 @@ Requires macOS 14 or newer.
 
 ## Install
 
-There is no notarized download yet, so macOS will refuse to open a copy you received as a zip until you clear
-the quarantine flag. Either build it yourself or install a zip from a teammate.
+### From the disk image
+
+1. Download `SecureTunnels-1.1.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
+2. Right-click SecureTunnels and choose Open, then Open again in the Gatekeeper dialog. This is needed once
+   because the app is not notarized.
+3. Accept "Install SecureTunnels in your Applications folder?". The app copies itself to Applications, clears
+   the quarantine flag on the copy, relaunches from there, ejects the disk image and moves it to the Trash.
+
+Dragging the app onto the Applications shortcut in the image works too. In that case run
+`xattr -dr com.apple.quarantine /Applications/SecureTunnels.app` once, or accept the same install prompt the
+first time you open the copy from anywhere but Applications.
 
 ### Build from source
 
@@ -61,17 +70,19 @@ make install
 `make install` compiles the release build, assembles `build/SecureTunnels.app`, ad-hoc signs it, copies it to
 `/Applications` and launches it. The lock icon appears in the menu bar.
 
-### Install from a zip
+### From the zip
+
+Unzip it, right-click the app, choose Open, and accept the install prompt. The app moves itself to
+Applications, clears quarantine, and trashes the extracted copy and the zip. Or do it by hand:
 
 ```bash
-unzip SecureTunnels-1.0.0.zip -d /Applications
+unzip SecureTunnels-1.1.0.zip -d /Applications
 xattr -dr com.apple.quarantine /Applications/SecureTunnels.app
 open /Applications/SecureTunnels.app
 ```
 
-Without the `xattr` line Gatekeeper reports that the app is damaged or from an unidentified developer. The app
-is ad-hoc signed because there is no Apple Developer ID behind it. Right-clicking the app and choosing Open
-works too.
+The app is ad-hoc signed because there is no Apple Developer ID behind it, which is why Gatekeeper needs the
+one-time right-click Open.
 
 ### First run
 
@@ -93,7 +104,8 @@ works too.
 | `make debug`       | Same, debug configuration                                           |
 | `make run`         | Build and open the app from the build folder                        |
 | `make install`     | Build, copy to `/Applications` and launch                           |
-| `make dist`        | Build and zip the app as `build/SecureTunnels-<version>.zip`        |
+| `make dmg`         | Build the drag-to-Applications disk image                           |
+| `make dist`        | Build the zip and the disk image under `build/`                     |
 | `make test`        | Run the unit tests (`swift test`)                                   |
 | `make screenshots` | Render the README screenshots with sample data, light and dark      |
 | `make icon`        | Regenerate `Resources/AppIcon.icns` from `Resources/icon-source.png` |
@@ -107,7 +119,11 @@ The app also answers two command line flags, which the Makefile uses:
 ```bash
 /Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --launch-at-login on|off|status
 /Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --snapshot <dir> [--demo] [--dark]
+/Volumes/SecureTunnels/SecureTunnels.app/Contents/MacOS/SecureTunnels --install
 ```
+
+`--install` runs the Applications install without the prompt. Set `SECURETUNNELS_NO_INSTALL=1` to suppress
+the prompt entirely, for example when running a build from a custom location.
 
 ## How a tunnel runs
 
