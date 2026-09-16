@@ -16,7 +16,7 @@ struct TunnelsWindow: View {
   @State private var profileSelection: UUID?
   @State private var settingsSection: SettingsSection? = .startup
   @State private var confirmDelete = false
-  @State private var importMessage: String?
+  @State private var importFlow = SecurePipesImportFlow()
   @State private var pendingChange: (() -> Void)?
   @State private var showUnsavedDialog = false
 
@@ -54,11 +54,7 @@ struct TunnelsWindow: View {
         .help("Launch at login, import and storage")
       }
     }
-    .alert("Secure Pipes Import", isPresented: Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })) {
-      Button("OK") { importMessage = nil }
-    } message: {
-      Text(importMessage ?? "")
-    }
+    .modifier(SecurePipesImportDialogs(flow: importFlow))
     .confirmationDialog("You have unsaved changes.", isPresented: $showUnsavedDialog, titleVisibility: .visible) {
       Button("Save Changes") {
         manager.editorSave?()
@@ -326,7 +322,7 @@ struct TunnelsWindow: View {
             : "Select a tunnel to edit it.")
         } actions: {
           if manager.tunnels.isEmpty && SecurePipesImporter.isAvailable() {
-            Button { importFromSecurePipes() } label: {
+            Button { importFlow.begin(manager: manager) } label: {
               Label("Import from Secure Pipes", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderedProminent)
@@ -346,16 +342,6 @@ struct TunnelsWindow: View {
       }
     case .settings:
       SettingsView(section: settingsSection ?? .startup)
-    }
-  }
-
-  private func importFromSecurePipes() {
-    do {
-      let summary = try manager.importFromSecurePipes()
-      importMessage = "Imported \(summary.added) new and updated \(summary.updated) existing connections. "
-        + "Key passphrases and passwords are not carried over, so enter them in each tunnel."
-    } catch {
-      importMessage = "Import failed: \(error.localizedDescription)"
     }
   }
 }

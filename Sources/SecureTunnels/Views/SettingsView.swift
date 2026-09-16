@@ -25,7 +25,7 @@ struct SettingsView: View {
   @Environment(TunnelManager.self) private var manager
   @Environment(AppSettings.self) private var settings
   var section: SettingsSection?
-  @State private var importMessage: String?
+  @State private var importFlow = SecurePipesImportFlow()
 
   private func shows(_ candidate: SettingsSection) -> Bool {
     section == nil || section == candidate
@@ -58,17 +58,14 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
           HStack {
-            Button { importFromSecurePipes() } label: {
+            Button { importFlow.begin(manager: manager) } label: {
               Label("Import Connections", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderedProminent)
-              .help("Read the Secure Pipes connection list and add or update tunnels")
-            Text("Existing tunnels with the same Secure Pipes ID are updated, not duplicated.")
+            .help("Read the Secure Pipes connection list and choose what to add")
+            Text("Adds connections you do not have yet. Nothing is removed, and overwriting existing ones is a separate choice you confirm.")
               .font(.caption)
               .foregroundStyle(.secondary)
-          }
-          if let importMessage {
-            Text(importMessage).font(.caption)
           }
         } else {
           Text("No Secure Pipes configuration was found on this Mac.")
@@ -102,6 +99,7 @@ struct SettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .modifier(SecurePipesImportDialogs(flow: importFlow))
   }
 
   private func pathLink(_ url: URL) -> some View {
@@ -115,14 +113,5 @@ struct SettingsView: View {
     }
     .buttonStyle(.link)
     .help("Reveal in Finder")
-  }
-
-  private func importFromSecurePipes() {
-    do {
-      let summary = try manager.importFromSecurePipes()
-      importMessage = "Imported \(summary.added) new, updated \(summary.updated). Enter each tunnel's passphrase or password in Manage Tunnels."
-    } catch {
-      importMessage = "Import failed: \(error.localizedDescription)"
-    }
   }
 }

@@ -34,8 +34,10 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
   edits asks first. Connect saves for you.
 - One window for everything: Tunnels, Profiles and Settings are modes in the sidebar. The app has no Dock
   icon until that window is open, and drops it again when the window closes.
-- Imports Secure Pipes connections on first launch and on demand from Settings. Passphrases and passwords are
-  not carried over because Secure Pipes keeps them in its own keychain items, so enter them once per tunnel.
+- Imports Secure Pipes connections on first launch and on demand from Settings. An import only adds
+  connections you do not have yet and never removes anything; overwriting previously imported tunnels with
+  the Secure Pipes values is a separate choice you confirm. Passphrases and passwords are not carried over
+  because Secure Pipes keeps them in its own keychain items, so enter them once per tunnel.
 - Writes a per-tunnel ssh log under `~/Library/Application Support/SecureTunnels/logs`.
 
 Requires macOS 14 or newer.

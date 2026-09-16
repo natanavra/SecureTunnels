@@ -36,6 +36,13 @@ enum TunnelStatus: Equatable {
 struct ImportSummary {
   var added = 0
   var updated = 0
+  var skipped = 0
+}
+
+/// What an import would do, shown to the user before anything changes.
+struct ImportPreview {
+  var new: [Tunnel]
+  var existing: [Tunnel]
 }
 
 @MainActor
@@ -407,21 +414,33 @@ final class TunnelManager {
 
   // MARK: Import
 
+  func previewSecurePipesImport() throws -> ImportPreview {
+    let imported = try SecurePipesImporter.load()
+    let known = Set(tunnels.map(\.id))
+    return ImportPreview(new: imported.filter { !known.contains($0.id) }, existing: imported.filter { known.contains($0.id) })
+  }
+
+  /// Adds connections that are not here yet. Existing ones (same Secure Pipes ID) are left untouched unless
+  /// `overwriteExisting` is set, and even then their group and profile link survive. Nothing is ever removed.
   @discardableResult
-  func importFromSecurePipes() throws -> ImportSummary {
+  func importFromSecurePipes(overwriteExisting: Bool = false) throws -> ImportSummary {
     let imported = try SecurePipesImporter.load()
     var summary = ImportSummary()
     for tunnel in imported {
-      if let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) {
-        var updated = tunnel
-        updated.group = tunnels[index].group
-        updated.profileID = tunnels[index].profileID
-        tunnels[index] = updated
-        summary.updated += 1
-      } else {
+      guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else {
         tunnels.append(tunnel)
         summary.added += 1
+        continue
       }
+      guard overwriteExisting else {
+        summary.skipped += 1
+        continue
+      }
+      var updated = tunnel
+      updated.group = tunnels[index].group
+      updated.profileID = tunnels[index].profileID
+      tunnels[index] = updated
+      summary.updated += 1
     }
     saveNow()
     return summary
