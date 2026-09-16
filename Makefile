@@ -1,4 +1,4 @@
-VERSION ?= 0.1.0
+VERSION ?= 1.0.0
 export VERSION
 
 .PHONY: build debug run test install clean icon snapshots screenshots dist

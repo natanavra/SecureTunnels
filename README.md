@@ -18,12 +18,18 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
 ## What it does
 
 - Lists every tunnel in a menu bar popover with a live status dot and a switch to connect or disconnect.
+  Tunnels can be grouped (Production, Staging, a client name) and each group connects or disconnects as one.
 - Local forwards, remote forwards and SOCKS proxies.
-- Per-tunnel SSH host, port, username, identity file, key passphrase and password. Secrets live in the login
-  keychain, not on disk.
+- Profiles bundle a server: host, port, username, identity file, key passphrase and password. Several tunnels
+  can share one profile, or a tunnel can carry its own settings. Secrets live in the login keychain, not on
+  disk.
 - Connects selected tunnels when the app starts, and starts the app at login.
-- Reconnects after a drop, after the Mac wakes from sleep, and as soon as the network comes back after an
-  outage.
+- Reconnects after a drop with exponential backoff (the tunnel's interval, then double each time, capped at
+  five minutes, never giving up), after the Mac wakes from sleep, and immediately when the network comes back.
+- Checks the local port before connecting and names the process that holds it, so a clash with another tool
+  shows up as "port 8080 is already in use by ssh (pid 1914)" instead of a failed handshake.
+- Shows why a connection failed: a plain-language error in the popover, and the ssh output of the last attempt
+  in the tunnel editor with a Copy button.
 - Imports Secure Pipes connections on first launch and on demand from Settings. Passphrases and passwords are
   not carried over because Secure Pipes keeps them in its own keychain items, so enter them once per tunnel.
 - Writes a per-tunnel ssh log under `~/Library/Application Support/SecureTunnels/logs`.
@@ -51,7 +57,7 @@ make install
 ### Install from a zip
 
 ```bash
-unzip SecureTunnels-0.1.0.zip -d /Applications
+unzip SecureTunnels-1.0.0.zip -d /Applications
 xattr -dr com.apple.quarantine /Applications/SecureTunnels.app
 open /Applications/SecureTunnels.app
 ```
@@ -67,7 +73,10 @@ works too.
 2. Open each tunnel and enter its key passphrase or password if it needs one.
 3. Turn on "Launch SecureTunnels at login" in Settings. The app has to run from `/Applications` for macOS to
    accept it as a login item.
-4. Quit Secure Pipes before connecting, otherwise the local ports are still taken.
+4. Quit Secure Pipes before connecting, otherwise the local ports are still taken. The tunnel editor warns
+   when another process holds the port.
+5. If several tunnels go through the same server, open one of them and press "Save as Profile", then pick that
+   profile under "Server" in the others.
 
 ## Build targets
 
@@ -105,12 +114,15 @@ environment variables. Host keys of new servers are trusted on first connect (`a
 checking is enabled for the tunnel. A changed host key is always rejected.
 
 When ssh exits while the tunnel should be up, the app waits the tunnel's reconnect interval and starts it
-again. When the network path goes away it kills the sessions immediately and relaunches them the moment a
-route is back. Before sleep it does the same and reconnects three seconds after wake.
+again, doubling the wait on each further failure up to five minutes. It keeps trying until you disconnect the
+tunnel. When the network path goes away it kills the sessions immediately, shows "Waiting for network", and
+relaunches them the moment a route is back, with the backoff reset. Before sleep it does the same and
+reconnects three seconds after wake.
 
 ## Layout
 
-- `Sources/SecureTunnelsCore`: model, JSON storage, keychain, ssh argument builder, Secure Pipes importer.
+- `Sources/SecureTunnelsCore`: tunnel and profile model, JSON storage, keychain, ssh argument builder, port
+  probe, Secure Pipes importer.
 - `Sources/SecureTunnels`: the SwiftUI app (menu bar popover, Tunnels window, Settings, tunnel manager).
 - `Sources/SecureTunnelsAskPass`: the askpass helper.
 - `Tests/SecureTunnelsCoreTests`: unit tests with a Secure Pipes fixture.

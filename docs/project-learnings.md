@@ -34,3 +34,18 @@
   From the build folder the status is `notFound`.
 - `open` occasionally returns `_LSOpenURLsWithCompletionHandler() failed with error -600` right after `pkill`
   in `make install`; running `open` again works.
+
+## Profiles, groups and conflicts (2026-09-16)
+
+- `tunnels.json` is now version 2 with a `profiles` array. `Tunnel` and `StoredData` decode with
+  `decodeIfPresent` so version 1 files load unchanged; `group` defaults to "" and `profileID` to nil.
+- A tunnel with `profileID` takes host, port, username, identity file and both secrets from the profile.
+  `Tunnel.applying(_:)` produces the resolved copy that ssh runs. Removing a profile copies its settings and
+  keychain items back into the tunnels that used it.
+- Conflict detection runs `/usr/sbin/lsof -nP -iTCP:<port> -sTCP:LISTEN -F pc` before ssh starts. Output is
+  one field per line (`p<pid>`, `c<command>`). It takes roughly 100 ms, so the manager runs it detached.
+- Reconnect delay is `reconnectInterval << (attempt - 1)` capped at 300 s, reset on a successful connect, on
+  a user-initiated connect and when the network path returns.
+- Generated icon artwork from Codex came back with a semi-transparent alpha channel (95% of pixels below
+  alpha 250) that turned into blotches after masking. `make-icon.swift` now forces every pixel opaque before
+  drawing. Asking for "fully opaque, no transparency" in the prompt did not prevent it.
