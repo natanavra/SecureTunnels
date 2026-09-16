@@ -1,0 +1,5 @@
+# Decisions
+
+- **2026-09-16 - Native Swift app:** SecureTunnels is a SwiftUI menu bar app built with SwiftPM and a bundling script, not an Electron or web app, because login items, keychain and ssh process control are macOS-native concerns.
+- **2026-09-16 - Secrets through askpass stdin:** Key passphrases and passwords are stored in the login keychain and handed to ssh through the bundled askpass helper over stdin, never through arguments or environment variables.
+- **2026-09-16 - Secure Pipes IDs are kept:** Imported tunnels keep their Secure Pipes UUID so repeated imports update rather than duplicate.
