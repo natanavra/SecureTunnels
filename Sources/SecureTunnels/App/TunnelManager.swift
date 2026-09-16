@@ -612,14 +612,18 @@ final class TunnelManager {
       return
     }
     let settings = CloudflareSettings.shared
-    guard let api = settings.api, !settings.accountID.isEmpty else {
-      launching.remove(id)
-      scheduleRetryOrFail(id, message: "Add a Cloudflare API token and pick an account in Settings > Cloudflare first.")
-      return
-    }
     let hostname = tunnel.cloudflare.hostname.trimmingCharacters(in: .whitespaces).lowercased()
     let serviceURL = tunnel.cloudflareServiceURL
     let existing = tunnel.cloudflare
+    if settings.backend == .cli, let cli = settings.cli {
+      launchCloudflareViaCLI(id, cli: cli, binary: binary, hostname: hostname, serviceURL: serviceURL, existing: existing)
+      return
+    }
+    guard let api = settings.api, !settings.accountID.isEmpty else {
+      launching.remove(id)
+      scheduleRetryOrFail(id, message: "Add a Cloudflare API token or sign in with cloudflared in Settings > Cloudflare first.")
+      return
+    }
     let accountID = settings.accountID
     if existing.adopted, let remoteID = existing.tunnelID {
       Task { @MainActor in
@@ -658,11 +662,41 @@ final class TunnelManager {
     }
   }
 
+  /// CLI backend: create the tunnel and its DNS route with cloudflared once, then run it with the local service
+  /// as the single origin. The credentials file cloudflared wrote at creation time is picked up automatically.
+  private func launchCloudflareViaCLI(_ id: UUID, cli: CloudflaredCLI, binary: URL, hostname: String, serviceURL: String, existing: CloudflareConfig) {
+    let tunnelName = "securetunnels-" + (tunnel(id)?.name ?? "tunnel").lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+      + "-" + String(id.uuidString.prefix(8)).lowercased()
+    Task { @MainActor in
+      do {
+        var tunnelID = existing.tunnelID
+        if tunnelID == nil {
+          tunnelID = try await cli.createTunnel(name: tunnelName)
+        }
+        guard let tunnelID else { return }
+        if !existing.adopted, !hostname.isEmpty, existing.tunnelID == nil || existing.hostname.lowercased() != hostname {
+          try await cli.routeDNS(tunnelID: tunnelID, hostname: hostname)
+        }
+        launching.remove(id)
+        guard wantsRunning.contains(id), processes[id] == nil, var current = self.tunnel(id) else { return }
+        current.cloudflare.tunnelID = tunnelID
+        update(current)
+        publicURL[id] = hostname.isEmpty ? nil : "https://\(hostname)"
+        run(id: id, executable: binary, arguments: cli.runArguments(tunnelID: tunnelID, serviceURL: serviceURL), environment: [:], stdin: nil)
+      } catch {
+        launching.remove(id)
+        lastOutput[id] = error.localizedDescription + "\n"
+        scheduleRetryOrFail(id, message: error.localizedDescription)
+      }
+    }
+  }
+
   /// Creates a local tunnel entry for a tunnel that already exists in the account. Its ingress and DNS are
   /// left to the dashboard; the app fetches the token and runs it.
   @discardableResult
   func adoptCloudflareTunnel(_ info: RemoteTunnelInfo) -> Tunnel? {
-    guard let first = info.ingress.first else { return nil }
+    let first = info.ingress.first ?? CloudflareAPI.Ingress(hostname: nil, service: "http://localhost:8080")
+    guard !info.ingress.isEmpty || CloudflareSettings.shared.backend == .cli else { return nil }
     let service = URL(string: first.service)
     let scheme = service?.scheme ?? "http"
     var tunnel = Tunnel(
@@ -699,8 +733,14 @@ final class TunnelManager {
   /// tunnels are left in the account because the app did not create them.
   private func deprovisionCloudflare(_ tunnel: Tunnel) {
     let config = tunnel.cloudflare
-    guard !config.adopted, let tunnelID = config.tunnelID, let api = CloudflareSettings.shared.api else { return }
-    let accountID = CloudflareSettings.shared.accountID
+    guard !config.adopted, let tunnelID = config.tunnelID else { return }
+    let settings = CloudflareSettings.shared
+    if settings.backend == .cli, let cli = settings.cli {
+      Task.detached { try? await cli.deleteTunnel(tunnelID: tunnelID) }
+      return
+    }
+    guard let api = settings.api else { return }
+    let accountID = settings.accountID
     Task.detached {
       if let zoneID = config.zoneID, let recordID = config.dnsRecordID {
         try? await api.deleteDNS(zoneID: zoneID, recordID: recordID)

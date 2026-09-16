@@ -28,6 +28,10 @@ final class CloudflareSettings {
   private(set) var cloudflaredVersion: String?
   private(set) var isInstalling = false
   private(set) var installError: String?
+  private(set) var cliLoggedIn = false
+  private(set) var cliCertificate: CloudflaredCLI.CertificateInfo?
+  private(set) var isLoggingIn = false
+  private(set) var loginError: String?
 
   private init() {
     hasToken = Keychain.read(.apiToken, ownerID: Self.tokenOwner) != nil
@@ -43,12 +47,43 @@ final class CloudflareSettings {
     return token.isEmpty ? nil : CloudflareAPI(token: token)
   }
 
+  /// The CLI backend, available when cloudflared is installed and `cloudflared tunnel login` was run.
+  var cli: CloudflaredCLI? {
+    guard cliLoggedIn, let cloudflaredURL else { return nil }
+    return CloudflaredCLI(binary: cloudflaredURL)
+  }
+
+  enum Backend: Equatable {
+    case api
+    case cli
+    case none
+
+    var label: String {
+      switch self {
+      case .api: return "API token"
+      case .cli: return "cloudflared login"
+      case .none: return "not connected"
+      }
+    }
+  }
+
+  /// A token wins over the CLI login because it works for every zone and needs no local files.
+  var backend: Backend {
+    if api != nil, !accountID.isEmpty { return .api }
+    if cli != nil { return .cli }
+    return .none
+  }
+
+  var isConnected: Bool { backend != .none }
+
   /// Finds the binary now and asks it for its version off the main thread. Running a process here synchronously
   /// would spin the run loop inside the singleton's initializer and re-enter it from SwiftUI.
   func refreshCloudflared() {
     let url = Cloudflared.locate()
     cloudflaredURL = url
     cloudflaredVersion = nil
+    cliLoggedIn = CloudflaredCLI.isLoggedIn
+    cliCertificate = cliLoggedIn ? CloudflaredCLI.certificateInfo() : nil
     guard let url else { return }
     Task.detached {
       let version = Cloudflared.version(at: url)
@@ -101,8 +136,37 @@ final class CloudflareSettings {
     Task { await refreshRemoteTunnels() }
   }
 
+  /// Runs `cloudflared tunnel login`, which opens the browser, and picks up cert.pem when it finishes.
+  func loginWithCLI() async {
+    guard let cloudflaredURL else { return }
+    isLoggingIn = true
+    loginError = nil
+    defer { isLoggingIn = false }
+    do {
+      try await CloudflaredCLI(binary: cloudflaredURL).login()
+      refreshCloudflared()
+      await refreshRemoteTunnels()
+    } catch {
+      loginError = error.localizedDescription
+    }
+  }
+
   /// Lists the account's tunnels with their ingress rules, so existing ones can be adopted or deleted.
   func refreshRemoteTunnels() async {
+    if backend == .cli, let cli {
+      isLoadingTunnels = true
+      tunnelsError = nil
+      defer { isLoadingTunnels = false }
+      do {
+        let tunnels = try await cli.listTunnels()
+        remoteTunnels = tunnels
+          .map { RemoteTunnelInfo(tunnel: $0, ingress: []) }
+          .sorted { $0.tunnel.name.localizedCaseInsensitiveCompare($1.tunnel.name) == .orderedAscending }
+      } catch {
+        tunnelsError = error.localizedDescription
+      }
+      return
+    }
     guard let api, !accountID.isEmpty else {
       remoteTunnels = []
       return
@@ -130,8 +194,16 @@ final class CloudflareSettings {
   }
 
   func deleteRemoteTunnel(_ info: RemoteTunnelInfo) async throws {
-    guard let api else { return }
-    try await api.deleteTunnelAndRoutes(accountID: accountID, tunnelID: info.tunnel.id, hostnames: info.hostnames)
+    switch backend {
+    case .api:
+      guard let api else { return }
+      try await api.deleteTunnelAndRoutes(accountID: accountID, tunnelID: info.tunnel.id, hostnames: info.hostnames)
+    case .cli:
+      guard let cli else { return }
+      try await cli.deleteTunnel(tunnelID: info.tunnel.id)
+    case .none:
+      return
+    }
     remoteTunnels.removeAll { $0.id == info.id }
   }
 }

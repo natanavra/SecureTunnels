@@ -51,7 +51,7 @@ Requires macOS 14 or newer.
 
 ### From the disk image
 
-1. Download `SecureTunnels-1.2.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
+1. Download `SecureTunnels-1.3.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
 2. Right-click SecureTunnels and choose Open, then Open again in the Gatekeeper dialog. This is needed once
    because the app is not notarized.
 3. Accept "Install SecureTunnels in your Applications folder?". The app copies itself to Applications, clears
@@ -80,7 +80,7 @@ Unzip it, right-click the app, choose Open, and accept the install prompt. The a
 Applications, clears quarantine, and trashes the extracted copy and the zip. Or do it by hand:
 
 ```bash
-unzip SecureTunnels-1.2.0.zip -d /Applications
+unzip SecureTunnels-1.3.0.zip -d /Applications
 xattr -dr com.apple.quarantine /Applications/SecureTunnels.app
 open /Applications/SecureTunnels.app
 ```
@@ -104,8 +104,11 @@ one-time right-click Open.
 
 1. Settings > Cloudflare: install `cloudflared` with one click (the app downloads the official release into
    its support folder) or let it find your Homebrew copy.
-2. Create an API token at dash.cloudflare.com/profile/api-tokens with Account > Cloudflare Tunnel > Edit and
-   Zone > DNS > Edit, paste it, press Save and Verify. Pick the account if the token sees more than one.
+2. Connect the account, one of two ways. Either create an API token at dash.cloudflare.com/profile/api-tokens
+   with Account > Cloudflare Tunnel > Edit and Zone > DNS > Edit, paste it and press Save and Verify (pick
+   the account if the token sees more than one). Or press "Sign in with cloudflared", which runs
+   `cloudflared tunnel login` in the browser; that works for the zone you pick there. A token is used when
+   both exist, because it covers every zone and shows the routes of each tunnel.
 3. New Tunnel, type Cloudflare Tunnel, local port, and a public hostname such as `preview.yourdomain.com`.
    Leave the hostname empty for a temporary `trycloudflare.com` URL that needs no token.
 4. Connect. The public URL appears in the popover and in the editor with Copy and Open buttons.
@@ -116,8 +119,12 @@ stopped from the menu bar; its ingress and DNS stay exactly as configured in the
 runs it. Delete removes the tunnel from Cloudflare together with the CNAME records that point at it, after a
 confirmation. Settings > Cloudflare holds only the cloudflared install, the API token and the account.
 
-The tunnel token cloudflared needs is passed through its environment, never on the command line, and is
-fetched from the API on every connect, so nothing secret is stored beyond your API token in the keychain.
+With a token, the tunnel token cloudflared needs is passed through its environment, never on the command
+line, and is fetched from the API on every connect, so nothing secret is stored beyond your API token in the
+keychain. With the cloudflared sign-in, tunnels are created with `cloudflared tunnel create`, routed with
+`cloudflared tunnel route dns`, and run with `tunnel run --url <local service> <id>` using the credentials
+file cloudflared writes under `~/.cloudflared`. cloudflared does not list routes, so those tunnels show no
+routes in the Cloudflare mode, and deleting one there leaves its DNS record behind.
 
 ## Build targets
 

@@ -81,7 +81,18 @@ struct SettingsView: View {
       if shows(.cloudflare) {
       Section("Cloudflare") {
         cloudflaredRow
-        SecureField("API token", text: $cloudflareToken, prompt: Text("Cloudflare API token"))
+        LabeledContent("Connected via") {
+          HStack(spacing: 8) {
+            Text(CloudflareSettings.shared.backend.label)
+            if CloudflareSettings.shared.backend == .cli, let cert = CloudflareSettings.shared.cliCertificate {
+              Text("account \(cert.accountID.prefix(8))…, zone \(cert.zoneID.prefix(8))…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+        }
+        cliLoginRow
+        SecureField("API token", text: $cloudflareToken, prompt: Text("Optional when signed in with cloudflared"))
           .onAppear {
             guard !loadedCloudflareToken else { return }
             cloudflareToken = CloudflareSettings.shared.token
@@ -118,7 +129,7 @@ struct SettingsView: View {
         if let verification = CloudflareSettings.shared.verification {
           Text(verification).font(.caption).foregroundStyle(verification.hasPrefix("Token works") ? Color.secondary : Color.red)
         }
-        Text("The token needs Account > Cloudflare Tunnel > Edit and Zone > DNS > Edit. Temporary trycloudflare.com tunnels work without a token. The tunnels in the account are listed under Cloudflare in the sidebar.")
+        Text("A token covers every zone and is used when present. Without one, the cloudflared sign-in works for the zone chosen in the browser: tunnels are created and routed with the CLI and run with their local credentials file. Temporary trycloudflare.com tunnels need neither. The tunnels in the account are listed under Cloudflare in the sidebar.")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -150,6 +161,34 @@ struct SettingsView: View {
     }
     .formStyle(.grouped)
     .modifier(SecurePipesImportDialogs(flow: importFlow))
+  }
+
+  @ViewBuilder
+  private var cliLoginRow: some View {
+    let cf = CloudflareSettings.shared
+    LabeledContent("cloudflared login") {
+      HStack(spacing: 8) {
+        if cf.cliLoggedIn {
+          Text("Signed in (~/.cloudflared/cert.pem)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else {
+          Text("Not signed in").foregroundStyle(.secondary)
+        }
+        Button {
+          Task { await cf.loginWithCLI() }
+        } label: {
+          Label(cf.isLoggingIn ? "Waiting for browser…" : (cf.cliLoggedIn ? "Sign in again" : "Sign in with cloudflared"), systemImage: "person.crop.circle.badge.checkmark")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(cf.isLoggingIn || cf.cloudflaredURL == nil)
+        .help("Runs cloudflared tunnel login, which opens the Cloudflare dashboard in the browser to pick a zone")
+      }
+    }
+    if let error = cf.loginError {
+      Text(error).font(.caption).foregroundStyle(.red)
+    }
   }
 
   @ViewBuilder

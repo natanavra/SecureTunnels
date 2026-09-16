@@ -82,3 +82,7 @@
   the list shows them as having no ingress in the dashboard.
 - Adopting a tunnel must not call the provisioning path, which would overwrite the remote ingress with a
   single rule. Adopted tunnels only fetch the token and run.
+- CLI backend: `cert.pem` holds a base64 "ARGO TUNNEL TOKEN" JSON block with `accountID`, `zoneID` and a
+  service `apiToken`. The app only reads the ids for display; cloudflared itself uses that token against
+  special endpoints (`/zones/{zone}/tunnels/{id}/routes`), so it is not reused with the public DNS API.
+  `cloudflared tunnel list -o json` is the only list command; there is no command that lists DNS routes.

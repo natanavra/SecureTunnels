@@ -335,8 +335,11 @@ struct TunnelEditorView: View {
     if tunnel.cloudflare.isQuick {
       return "Without a hostname cloudflared opens a temporary public URL that changes on every connect. No Cloudflare account is needed."
     }
-    if !settings.hasToken || settings.accountID.isEmpty {
-      return "A hostname on one of your zones needs the API token and account under Settings > Cloudflare."
+    if settings.backend == .cli {
+      return "Signed in with cloudflared. On first connect the app runs cloudflared tunnel create and tunnel route dns for this hostname (it must be in the zone chosen at login), then runs the tunnel with this local service."
+    }
+    if !settings.isConnected {
+      return "A hostname on one of your zones needs an API token or a cloudflared sign-in under Settings > Cloudflare."
     }
     if let zone = CloudflareAPI.zone(for: tunnel.cloudflare.hostname, in: settings.zones) {
       return "On first connect the app creates a named tunnel in \(settings.accountName), routes it, and adds a proxied CNAME in the \(zone.name) zone. Removing the tunnel removes both."

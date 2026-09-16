@@ -11,8 +11,8 @@ struct RemoteTunnelSidebar: View {
 
   var body: some View {
     List(selection: $selection) {
-      if !cf.hasToken || cf.accountID.isEmpty {
-        Text("Add a Cloudflare API token under Settings > Cloudflare to see the tunnels in your account.")
+      if !cf.isConnected {
+        Text("Add a Cloudflare API token or sign in with cloudflared under Settings > Cloudflare to see the tunnels in your account.")
           .font(.caption)
           .foregroundStyle(.secondary)
       } else if cf.remoteTunnels.isEmpty && !cf.isLoadingTunnels {
@@ -63,7 +63,7 @@ struct RemoteTunnelSidebar: View {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
         .buttonStyle(.bordered)
-        .disabled(cf.isLoadingTunnels || !cf.hasToken)
+        .disabled(cf.isLoadingTunnels || !cf.isConnected)
         .help("Reload the tunnel list from Cloudflare")
       }
       .padding(10)
@@ -111,7 +111,9 @@ struct RemoteTunnelDetail: View {
 
         Section("Routes") {
           if info.ingress.isEmpty {
-            Text("No ingress is configured in the dashboard. The tunnel uses a local config file, or has not been routed yet, so SecureTunnels cannot run it.")
+            Text(cf.backend == .cli
+              ? "Routes of CLI-managed tunnels are not listed by cloudflared. Add the tunnel and set its hostname and local port in the editor."
+              : "No ingress is configured in the dashboard. The tunnel uses a local config file, or has not been routed yet, so SecureTunnels cannot run it.")
               .foregroundStyle(.secondary)
           }
           ForEach(Array(info.ingress.enumerated()), id: \.offset) { _, rule in
@@ -143,7 +145,7 @@ struct RemoteTunnelDetail: View {
             }
           } else {
             HStack {
-              Text(info.ingress.isEmpty
+              Text(info.ingress.isEmpty && cf.backend != .cli
                 ? "Route the tunnel to a hostname in the Cloudflare dashboard first."
                 : "Add it to run and stop it from the menu bar. Its routes stay as they are in the dashboard.")
                 .font(.caption)
@@ -155,7 +157,7 @@ struct RemoteTunnelDetail: View {
                 Label("Add to SecureTunnels", systemImage: "plus")
               }
               .buttonStyle(.borderedProminent)
-              .disabled(info.ingress.isEmpty)
+              .disabled(info.ingress.isEmpty && cf.backend != .cli)
               .help("Create a local entry that runs this tunnel")
             }
           }
@@ -189,11 +191,11 @@ struct RemoteTunnelDetail: View {
       ContentUnavailableView {
         Label("Cloudflare Tunnels", systemImage: "cloud")
       } description: {
-        Text(cf.hasToken
+        Text(cf.isConnected
           ? "Select a tunnel to see its routes, run it from SecureTunnels, or delete it."
-          : "Add a Cloudflare API token under Settings > Cloudflare to manage the tunnels in your account.")
+          : "Add a Cloudflare API token or sign in with cloudflared under Settings > Cloudflare to manage the tunnels in your account.")
       } actions: {
-        if !cf.hasToken {
+        if !cf.isConnected {
           Button { manager.pendingMode = .settings } label: { Label("Open Settings", systemImage: "gearshape") }
             .buttonStyle(.borderedProminent)
         }
