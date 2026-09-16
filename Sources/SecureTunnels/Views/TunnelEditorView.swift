@@ -32,6 +32,7 @@ struct TunnelEditorView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Pick an existing group")
           }
         }
         Picker("Type", selection: $tunnel.type) {
@@ -61,6 +62,7 @@ struct TunnelEditorView: View {
             Spacer()
             Button("Edit Profile…") { manager.pendingProfileSelection = profile.id }
               .controlSize(.small)
+              .help("Open this profile to change its server settings and secrets")
           }
         } else {
           TextField("Host", text: $tunnel.host, prompt: Text("example.com or 203.0.113.10"))
@@ -69,6 +71,7 @@ struct TunnelEditorView: View {
           HStack {
             TextField("Identity file", text: $tunnel.identityFile, prompt: Text("Leave empty to use ~/.ssh keys or the agent"))
             Button("Choose…") { chooseIdentityFile() }
+              .help("Pick the private key file for this tunnel")
           }
           SecureField("Key passphrase", text: $passphrase, prompt: Text("Only if the key is encrypted"))
             .onChange(of: passphrase) { _, value in store(value, .passphrase) }
@@ -89,6 +92,7 @@ struct TunnelEditorView: View {
             }
             .controlSize(.small)
             .disabled(tunnel.host.isEmpty)
+            .help("Move these server settings and secrets into a reusable profile")
           }
         }
       }
@@ -163,6 +167,7 @@ struct TunnelEditorView: View {
                 NSPasteboard.general.setString(output, forType: .string)
               }
               .controlSize(.small)
+              .help("Copy the ssh output to the clipboard")
             }
             ScrollView {
               Text(output.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -184,8 +189,10 @@ struct TunnelEditorView: View {
         }
         HStack {
           Button(status.isActive ? "Disconnect" : "Connect") { manager.toggle(tunnel.id) }
+            .help(status.isActive ? "Close this tunnel" : "Open this tunnel")
           Button("Show Log") { showLog() }
             .disabled(!FileManager.default.fileExists(atPath: AppPaths.logFile(for: tunnel.id).path))
+            .help("Open the full ssh log for this tunnel")
         }
       }
     }

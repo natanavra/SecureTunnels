@@ -73,13 +73,13 @@ struct MenuBarView: View {
   private var footer: some View {
     VStack(spacing: 1) {
       if manager.activeCount > 0 {
-        MenuRowButton(title: "Disconnect All", systemImage: "stop.circle") { manager.disconnectAll() }
+        MenuRowButton(title: "Disconnect All", systemImage: "stop.circle", help: "Close every open tunnel") { manager.disconnectAll() }
       }
-      MenuRowButton(title: "Manage Tunnels…", systemImage: "slider.horizontal.3") { open(WindowID.tunnels) }
+      MenuRowButton(title: "Manage Tunnels…", systemImage: "slider.horizontal.3", help: "Add, edit and remove tunnels and profiles") { open(WindowID.tunnels) }
         .keyboardShortcut(",", modifiers: [.command, .shift])
-      MenuRowButton(title: "Settings…", systemImage: "gearshape") { open(WindowID.settings) }
+      MenuRowButton(title: "Settings…", systemImage: "gearshape", help: "Launch at login, import and storage") { open(WindowID.settings) }
         .keyboardShortcut(",")
-      MenuRowButton(title: "Quit SecureTunnels", systemImage: "power") { NSApp.terminate(nil) }
+      MenuRowButton(title: "Quit SecureTunnels", systemImage: "power", help: "Quit and close every tunnel") { NSApp.terminate(nil) }
         .keyboardShortcut("q")
     }
     .padding(6)
@@ -171,6 +171,7 @@ private struct TunnelMenuRow: View {
         .labelsHidden()
         .toggleStyle(.switch)
         .controlSize(.mini)
+        .help(status.isActive ? "Disconnect \(tunnel.name)" : "Connect \(tunnel.name)")
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 6)
@@ -182,6 +183,10 @@ private struct TunnelMenuRow: View {
     .onHover { hovering = $0 }
     .onTapGesture { manager.toggle(tunnel.id) }
     .help(helpText)
+    .contextMenu {
+      Button(status.isActive ? "Disconnect" : "Connect") { manager.toggle(tunnel.id) }
+      Button("Edit…", action: showDetails)
+    }
   }
 
   private var subtitle: String {
@@ -213,6 +218,7 @@ private struct TunnelMenuRow: View {
 struct MenuRowButton: View {
   let title: String
   let systemImage: String
+  var help: String = ""
   let action: () -> Void
   @State private var hovering = false
 
@@ -236,5 +242,6 @@ struct MenuRowButton: View {
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
+    .help(help)
   }
 }

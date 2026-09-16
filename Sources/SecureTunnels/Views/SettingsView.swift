@@ -32,6 +32,7 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
           HStack {
             Button("Import Connections") { importFromSecurePipes() }
+              .help("Read the Secure Pipes connection list and add or update tunnels")
             Text("Existing tunnels with the same Secure Pipes ID are updated, not duplicated.")
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -77,6 +78,7 @@ struct SettingsView: View {
         .truncationMode(.middle)
     }
     .buttonStyle(.link)
+    .help("Reveal in Finder")
   }
 
   private func importFromSecurePipes() {

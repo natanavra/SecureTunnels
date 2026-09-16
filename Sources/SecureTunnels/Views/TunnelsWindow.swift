@@ -9,6 +9,7 @@ enum SidebarMode: String, CaseIterable, Identifiable {
 
 struct TunnelsWindow: View {
   @Environment(TunnelManager.self) private var manager
+  @Environment(\.openWindow) private var openWindow
   @State private var mode: SidebarMode = .tunnels
   @State private var selection: UUID?
   @State private var profileSelection: UUID?
@@ -45,6 +46,13 @@ struct TunnelsWindow: View {
         }
         .help("Import connections from Secure Pipes")
         .disabled(!SecurePipesImporter.isAvailable())
+        Button {
+          AppDelegate.bringToFront()
+          openWindow(id: WindowID.settings)
+        } label: {
+          Label("Settings", systemImage: "gearshape")
+        }
+        .help("Open Settings: launch at login, import and storage")
       }
     }
     .alert("Secure Pipes Import", isPresented: Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })) {
@@ -112,6 +120,17 @@ struct TunnelsWindow: View {
             }
             .padding(.vertical, 2)
             .tag(tunnel.id)
+            .contextMenu {
+              Button(manager.status(of: tunnel.id).isActive ? "Disconnect" : "Connect") { manager.toggle(tunnel.id) }
+              Button("Duplicate") {
+                if let copy = manager.duplicate(tunnel.id) { selection = copy.id }
+              }
+              Divider()
+              Button("Remove…", role: .destructive) {
+                selection = tunnel.id
+                confirmDelete = true
+              }
+            }
           }
         }
       }
@@ -130,6 +149,12 @@ struct TunnelsWindow: View {
         }
         .padding(.vertical, 2)
         .tag(profile.id)
+        .contextMenu {
+          Button("Remove…", role: .destructive) {
+            profileSelection = profile.id
+            confirmDelete = true
+          }
+        }
       }
       if manager.profiles.isEmpty {
         Text("Profiles bundle a server's host, user, key and secrets so several tunnels can share them.")
@@ -140,28 +165,29 @@ struct TunnelsWindow: View {
   }
 
   private var bottomBar: some View {
-    HStack(spacing: 0) {
-      Button(action: addItem) { Image(systemName: "plus") }
-        .help(mode == .tunnels ? "Add a tunnel" : "Add a profile")
-      Divider().frame(height: 16)
-      Button { confirmDelete = true } label: { Image(systemName: "minus") }
-        .disabled(currentSelection == nil)
-        .help(mode == .tunnels ? "Remove the selected tunnel" : "Remove the selected profile")
-      if mode == .tunnels {
-        Divider().frame(height: 16)
-        Button {
-          if let id = selection, let copy = manager.duplicate(id) { selection = copy.id }
-        } label: {
-          Image(systemName: "doc.on.doc")
-        }
-        .disabled(selection == nil)
-        .help("Duplicate the selected tunnel")
+    HStack(spacing: 8) {
+      Button(action: addItem) {
+        Label(mode == .tunnels ? "New Tunnel" : "New Profile", systemImage: "plus")
+          .frame(maxWidth: .infinity)
       }
-      Spacer()
+      .buttonStyle(.borderedProminent)
+      .help(mode == .tunnels ? "Create a new tunnel" : "Create a new profile")
+      if mode == .tunnels {
+        SidebarIconButton(systemImage: "doc.on.doc", help: "Duplicate the selected tunnel", disabled: selection == nil) {
+          if let id = selection, let copy = manager.duplicate(id) { selection = copy.id }
+        }
+      }
+      SidebarIconButton(
+        systemImage: "trash",
+        help: mode == .tunnels ? "Remove the selected tunnel" : "Remove the selected profile",
+        disabled: currentSelection == nil,
+        destructive: true
+      ) {
+        confirmDelete = true
+      }
     }
-    .buttonStyle(.borderless)
-    .padding(.horizontal, 8)
-    .frame(height: 28)
+    .controlSize(.regular)
+    .padding(10)
     .background(.bar)
     .overlay(alignment: .top) { Divider() }
   }
@@ -259,5 +285,28 @@ struct TunnelsWindow: View {
     } catch {
       importMessage = "Import failed: \(error.localizedDescription)"
     }
+  }
+}
+
+/// A square bordered icon button for the sidebar action bar, with a tooltip and a hover highlight.
+private struct SidebarIconButton: View {
+  let systemImage: String
+  let help: String
+  var disabled = false
+  var destructive = false
+  let action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemImage)
+        .font(.system(size: 13, weight: .medium))
+        .frame(width: 30, height: 22)
+        .foregroundStyle(destructive && hovering && !disabled ? Color.red : Color.primary)
+    }
+    .buttonStyle(.bordered)
+    .disabled(disabled)
+    .onHover { hovering = $0 }
+    .help(help)
   }
 }

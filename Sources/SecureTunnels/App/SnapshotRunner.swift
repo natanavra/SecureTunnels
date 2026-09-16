@@ -30,6 +30,7 @@ enum SnapshotRunner {
       ("settings", AnyView(SettingsView().environment(manager).environment(settings)), NSSize(width: 520, height: 0)),
     ]
 
+    writeMenuBarGlyphs(to: directory)
     var windows: [(String, NSWindow)] = []
     for page in pages {
       let hosting = NSHostingView(rootView: page.view)
@@ -71,6 +72,31 @@ enum SnapshotRunner {
       exit(0)
     }
     return true
+  }
+
+  /// Renders the status item glyphs at 8x, on light and dark backgrounds, for a quick visual check.
+  private static func writeMenuBarGlyphs(to directory: URL) {
+    let scale: CGFloat = 8
+    let cell = NSSize(width: 18 * scale, height: 18 * scale)
+    let image = NSImage(size: NSSize(width: cell.width * 2, height: cell.height * 2))
+    image.lockFocus()
+    for (column, glyph) in [MenuBarIcon.idle, MenuBarIcon.connected].enumerated() {
+      for (row, dark) in [false, true].enumerated() {
+        let rect = NSRect(x: CGFloat(column) * cell.width, y: CGFloat(row) * cell.height, width: cell.width, height: cell.height)
+        (dark ? NSColor(white: 0.15, alpha: 1) : NSColor(white: 0.93, alpha: 1)).setFill()
+        rect.fill()
+        let tinted = glyph.copy() as! NSImage
+        tinted.isTemplate = false
+        tinted.lockFocus()
+        (dark ? NSColor.white : NSColor.black).set()
+        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        tinted.draw(in: rect.insetBy(dx: cell.width * 0.2, dy: cell.height * 0.2))
+      }
+    }
+    image.unlockFocus()
+    guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
+    try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("menubar-glyph.png"))
   }
 
   /// Captures one of our own windows, including translucent materials, which offscreen view caching draws black.

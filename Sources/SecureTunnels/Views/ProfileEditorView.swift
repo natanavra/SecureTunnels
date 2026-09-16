@@ -27,6 +27,7 @@ struct ProfileEditorView: View {
         HStack {
           TextField("Identity file", text: $profile.identityFile, prompt: Text("Leave empty to use ~/.ssh keys or the agent"))
           Button("Choose…") { chooseIdentityFile() }
+            .help("Pick the private key file for this profile")
         }
         SecureField("Key passphrase", text: $passphrase, prompt: Text("Only if the key is encrypted"))
           .onChange(of: passphrase) { _, value in store(value, .passphrase) }
@@ -53,6 +54,7 @@ struct ProfileEditorView: View {
               .foregroundStyle(.secondary)
             Button("Open") { manager.pendingSelection = tunnel.id }
               .controlSize(.small)
+              .help("Edit \(tunnel.name)")
           }
         }
       }

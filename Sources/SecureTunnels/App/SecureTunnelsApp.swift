@@ -13,7 +13,7 @@ struct SecureTunnelsApp: App {
         .environment(manager)
         .environment(settings)
     } label: {
-      Image(systemName: manager.connectedCount > 0 ? "lock.shield.fill" : "lock.shield")
+      Image(nsImage: manager.connectedCount > 0 ? MenuBarIcon.connected : MenuBarIcon.idle)
     }
     .menuBarExtraStyle(.window)
 
