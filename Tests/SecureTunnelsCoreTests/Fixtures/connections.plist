@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Local Forwards</key>
+  <dict>
+    <key>type</key><integer>100</integer>
+    <key>children</key>
+    <dict>
+      <key>Prod Mongo</key>
+      <dict>
+        <key>type</key><integer>1</integer>
+        <key>config</key>
+        <dict>
+          <key>UUID</key><string>9ACAC557-E1BD-4A2E-84D0-6BF4A7EEABD0</string>
+          <key>name</key><string>Prod Mongo</string>
+          <key>sshServer</key><string>203.0.113.10</string>
+          <key>sshPort</key><string>2222</string>
+          <key>sshUsername</key><string>ec2-user</string>
+          <key>useCustomIdentity</key><true/>
+          <key>sshIdentityFile</key><string>/Users/me/keys/mongo.pem</string>
+          <key>localBindAddress</key><string>localhost</string>
+          <key>localBindPort</key><string>8082</string>
+          <key>remoteHost</key><string>localhost</string>
+          <key>remotePort</key><string>27017</string>
+          <key>startOnLaunch</key><true/>
+          <key>autoReconnect</key><true/>
+          <key>reconnectInterval</key><integer>60</integer>
+          <key>sshServerAliveInterval</key><integer>15</integer>
+          <key>sshServerAliveCountMax</key><integer>3</integer>
+          <key>compressData</key><integer>1</integer>
+          <key>strictHostKeys</key><integer>1</integer>
+          <key>hostnameScriptFile</key><string> </string>
+        </dict>
+      </dict>
+      <key>Nested Folder</key>
+      <dict>
+        <key>type</key><integer>100</integer>
+        <key>children</key>
+        <dict>
+          <key>Agent Key Redis</key>
+          <dict>
+            <key>type</key><integer>1</integer>
+            <key>config</key>
+            <dict>
+              <key>UUID</key><string>not-a-uuid</string>
+              <key>sshServer</key><string>redis.example.com</string>
+              <key>sshUsername</key><string>ubuntu</string>
+              <key>useCustomIdentity</key><false/>
+              <key>sshIdentityFile</key><string>/Users/me/keys/ignored.pem</string>
+              <key>localBindPort</key><integer>6380</integer>
+              <key>remoteHost</key><string>10.0.0.5</string>
+              <key>remotePort</key><integer>6379</integer>
+              <key>startOnLaunch</key><integer>0</integer>
+            </dict>
+          </dict>
+        </dict>
+      </dict>
+    </dict>
+  </dict>
+  <key>Remote Forwards</key>
+  <dict>
+    <key>type</key><integer>100</integer>
+    <key>children</key>
+    <dict>
+      <key>Expose Web</key>
+      <dict>
+        <key>type</key><integer>2</integer>
+        <key>config</key>
+        <dict>
+          <key>UUID</key><string>206C35A2-1AC5-4DAD-AD80-5EEF1B96C7F0</string>
+          <key>name</key><string>Expose Web</string>
+          <key>sshServer</key><string>bastion.example.com</string>
+          <key>sshPort</key><string>22</string>
+          <key>sshUsername</key><string>deploy</string>
+          <key>remoteBindAddress</key><string>0.0.0.0</string>
+          <key>remoteBindPort</key><string>9000</string>
+          <key>localBindAddress</key><string>127.0.0.1</string>
+          <key>localBindPort</key><string>3000</string>
+        </dict>
+      </dict>
+    </dict>
+  </dict>
+  <key>SOCKS Proxies</key>
+  <dict>
+    <key>type</key><integer>100</integer>
+    <key>children</key>
+    <dict>
+      <key>Office Proxy</key>
+      <dict>
+        <key>type</key><integer>9</integer>
+        <key>config</key>
+        <dict>
+          <key>UUID</key><string>3BBEFD65-5919-4D75-A249-9FB1C01E954E</string>
+          <key>name</key><string>Office Proxy</string>
+          <key>sshServer</key><string>proxy.example.com</string>
+          <key>sshUsername</key><string>me</string>
+          <key>localBindAddress</key><string>localhost</string>
+          <key>localBindPort</key><string>1080</string>
+        </dict>
+      </dict>
+      <key>Unknown Type</key>
+      <dict>
+        <key>type</key><integer>42</integer>
+        <key>config</key>
+        <dict><key>name</key><string>Unknown</string></dict>
+      </dict>
+    </dict>
+  </dict>
+</dict>
+</plist>
