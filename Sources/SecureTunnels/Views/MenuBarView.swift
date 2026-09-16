@@ -62,7 +62,7 @@ struct MenuBarView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      Button { open(WindowID.tunnels) } label: { Label("Manage Tunnels", systemImage: "slider.horizontal.3") }
+      Button { open(WindowID.main) } label: { Label("Manage Tunnels", systemImage: "slider.horizontal.3") }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
         .help("Add your first tunnel")
@@ -77,10 +77,16 @@ struct MenuBarView: View {
       if manager.activeCount > 0 {
         MenuRowButton(title: "Disconnect All", systemImage: "stop.circle", help: "Close every open tunnel") { manager.disconnectAll() }
       }
-      MenuRowButton(title: "Manage Tunnels…", systemImage: "slider.horizontal.3", help: "Add, edit and remove tunnels and profiles") { open(WindowID.tunnels) }
-        .keyboardShortcut(",", modifiers: [.command, .shift])
-      MenuRowButton(title: "Settings…", systemImage: "gearshape", help: "Launch at login, import and storage") { open(WindowID.settings) }
-        .keyboardShortcut(",")
+      MenuRowButton(title: "Manage Tunnels…", systemImage: "slider.horizontal.3", help: "Add, edit and remove tunnels and profiles") {
+        manager.pendingMode = .tunnels
+        open(WindowID.main)
+      }
+      .keyboardShortcut(",", modifiers: [.command, .shift])
+      MenuRowButton(title: "Settings…", systemImage: "gearshape", help: "Launch at login, import and storage") {
+        manager.pendingMode = .settings
+        open(WindowID.main)
+      }
+      .keyboardShortcut(",")
       MenuRowButton(title: "Quit SecureTunnels", systemImage: "power", help: "Quit and close every tunnel") { NSApp.terminate(nil) }
         .keyboardShortcut("q")
     }
@@ -89,7 +95,7 @@ struct MenuBarView: View {
 
   private func showDetails(_ id: UUID) {
     manager.pendingSelection = id
-    open(WindowID.tunnels)
+    open(WindowID.main)
   }
 
   private func open(_ id: String) {

@@ -30,6 +30,10 @@ SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Sec
   shows up as "port 8080 is already in use by ssh (pid 1914)" instead of a failed handshake.
 - Shows why a connection failed: a plain-language error in the popover, and the ssh output of the last attempt
   in the tunnel editor with a Copy button.
+- Edits are explicit: change a tunnel or profile, then Save (Command-S) or Revert. Switching away with unsaved
+  edits asks first. Connect saves for you.
+- One window for everything: Tunnels, Profiles and Settings are modes in the sidebar. The app has no Dock
+  icon until that window is open, and drops it again when the window closes.
 - Imports Secure Pipes connections on first launch and on demand from Settings. Passphrases and passwords are
   not carried over because Secure Pipes keeps them in its own keychain items, so enter them once per tunnel.
 - Writes a per-tunnel ssh log under `~/Library/Application Support/SecureTunnels/logs`.
@@ -69,8 +73,8 @@ works too.
 ### First run
 
 1. If Secure Pipes is installed, its connections are imported automatically. Otherwise open Manage Tunnels
-   from the menu bar and press + to add one.
-2. Open each tunnel and enter its key passphrase or password if it needs one.
+   from the menu bar and press New Tunnel.
+2. Open each tunnel, enter its key passphrase or password if it needs one, and press Save.
 3. Turn on "Launch SecureTunnels at login" in Settings. The app has to run from `/Applications` for macOS to
    accept it as a login item.
 4. Quit Secure Pipes before connecting, otherwise the local ports are still taken. The tunnel editor warns

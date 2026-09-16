@@ -17,23 +17,15 @@ struct SecureTunnelsApp: App {
     }
     .menuBarExtraStyle(.window)
 
-    Window("Tunnels", id: WindowID.tunnels) {
+    Window("SecureTunnels", id: WindowID.main) {
       TunnelsWindow()
         .environment(manager)
         .environment(settings)
     }
     .defaultSize(width: 940, height: 640)
-
-    Window("SecureTunnels Settings", id: WindowID.settings) {
-      SettingsView()
-        .environment(manager)
-        .environment(settings)
-    }
-    .windowResizability(.contentSize)
   }
 }
 
 enum WindowID {
-  static let tunnels = "tunnels"
-  static let settings = "settings"
+  static let main = "main"
 }

@@ -27,7 +27,8 @@ enum SnapshotRunner {
       ("menubar", AnyView(MenuBarView().environment(manager).environment(settings)
         .background(Color(nsColor: .windowBackgroundColor))), NSSize(width: 320, height: 0)),
       ("tunnels", AnyView(TunnelsWindow(initialSelection: firstTunnel).environment(manager).environment(settings)), NSSize(width: 940, height: 640)),
-      ("settings", AnyView(SettingsView().environment(manager).environment(settings)), NSSize(width: 520, height: 0)),
+      ("settings", AnyView(SettingsView().environment(manager).environment(settings)
+        .frame(width: 520).fixedSize(horizontal: false, vertical: true)), NSSize(width: 520, height: 0)),
     ]
 
     writeMenuBarGlyphs(to: directory)
@@ -43,7 +44,7 @@ enum SnapshotRunner {
       )
       window.contentView = hosting
       window.toolbarStyle = .unified
-      window.title = "Tunnels"
+      window.title = "SecureTunnels"
       if isPopover {
         window.isOpaque = false
         window.backgroundColor = .clear

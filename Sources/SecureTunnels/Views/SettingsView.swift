@@ -2,14 +2,39 @@ import AppKit
 import SwiftUI
 import SecureTunnelsCore
 
+enum SettingsSection: String, CaseIterable, Identifiable {
+  case startup = "Startup"
+  case securePipes = "Secure Pipes"
+  case storage = "Storage"
+  case about = "About"
+
+  var id: String { rawValue }
+
+  var systemImage: String {
+    switch self {
+    case .startup: return "power"
+    case .securePipes: return "square.and.arrow.down"
+    case .storage: return "internaldrive"
+    case .about: return "info.circle"
+    }
+  }
+}
+
+/// The settings form. With a section it shows only that part, which is how the main window's sidebar uses it.
 struct SettingsView: View {
   @Environment(TunnelManager.self) private var manager
   @Environment(AppSettings.self) private var settings
+  var section: SettingsSection?
   @State private var importMessage: String?
+
+  private func shows(_ candidate: SettingsSection) -> Bool {
+    section == nil || section == candidate
+  }
 
   var body: some View {
     @Bindable var settings = settings
     Form {
+      if shows(.startup) {
       Section("Startup") {
         Toggle("Launch SecureTunnels at login", isOn: $settings.launchAtLogin)
         if let error = settings.launchAtLoginError {
@@ -24,7 +49,9 @@ struct SettingsView: View {
           .foregroundStyle(.secondary)
         Toggle("Reconnect active tunnels after the Mac wakes from sleep", isOn: $settings.reconnectAfterWake)
       }
+      }
 
+      if shows(.securePipes) {
       Section("Secure Pipes") {
         if SecurePipesImporter.isAvailable() {
           Text("Secure Pipes connections were found at \(SecurePipesImporter.plistURL.path).")
@@ -48,7 +75,9 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
         }
       }
+      }
 
+      if shows(.storage) {
       Section("Storage") {
         LabeledContent("Tunnels") { pathLink(AppPaths.tunnelsFile) }
         LabeledContent("Known hosts") { pathLink(AppPaths.knownHostsFile) }
@@ -60,15 +89,19 @@ struct SettingsView: View {
           Text(loadError).font(.caption).foregroundStyle(.red)
         }
       }
+      }
 
+      if shows(.about) {
       Section("About") {
         LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
         LabeledContent("ssh", value: SSHCommand.executable)
+        LabeledContent("Source") {
+          Link("github.com/natanavra/SecureTunnels", destination: URL(string: "https://github.com/natanavra/SecureTunnels")!)
+        }
+      }
       }
     }
     .formStyle(.grouped)
-    .frame(width: 520)
-    .fixedSize(horizontal: false, vertical: true)
   }
 
   private func pathLink(_ url: URL) -> some View {

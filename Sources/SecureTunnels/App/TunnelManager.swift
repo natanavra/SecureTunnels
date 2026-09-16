@@ -54,9 +54,21 @@ final class TunnelManager {
   private(set) var lastOutput: [UUID: String] = [:]
   private(set) var loadError: String?
   private(set) var networkAvailable = true
-  /// Set by the popover to ask the Tunnels window to show a tunnel. The window clears it.
+  /// Set by the popover to ask the main window to show a tunnel, a profile or a sidebar mode. The window clears it.
   var pendingSelection: UUID?
   var pendingProfileSelection: UUID?
+  var pendingMode: SidebarMode?
+
+  /// The open editor reports unsaved changes here so the window can ask before switching away.
+  var editorHasChanges = false
+  @ObservationIgnored var editorSave: (() -> Void)?
+  @ObservationIgnored var editorDiscard: (() -> Void)?
+
+  func clearEditorSession() {
+    editorHasChanges = false
+    editorSave = nil
+    editorDiscard = nil
+  }
 
   @ObservationIgnored private var processes: [UUID: Process] = [:]
   @ObservationIgnored private var launching: Set<UUID> = []

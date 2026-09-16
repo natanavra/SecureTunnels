@@ -35,24 +35,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     false
   }
 
-  /// An accessory app has no main menu, which breaks copy and paste in text fields. Switch to a regular app while
-  /// one of our windows is open and drop back to accessory once they are all closed.
+  /// The app lives in the menu bar. It only becomes a regular app, with a Dock icon and a main menu (needed for
+  /// copy and paste in text fields), while its window is open, and drops back to accessory when it closes.
   private func observeWindows() {
     let center = NotificationCenter.default
-    windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
-      Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(200))
-        if !AppDelegate.hasVisibleAppWindow {
-          NSApp.setActivationPolicy(.accessory)
+    for name in [NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
+      NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification] {
+      windowObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(250))
+          AppDelegate.updateActivationPolicy()
         }
-      }
-    })
+      })
+    }
   }
 
+  static func updateActivationPolicy() {
+    let wanted: NSApplication.ActivationPolicy = hasVisibleAppWindow ? .regular : .accessory
+    if NSApp.activationPolicy() != wanted {
+      NSApp.setActivationPolicy(wanted)
+    }
+  }
+
+  /// Our own document-style windows only: the menu bar popover is a panel at a higher level and does not count.
   static var hasVisibleAppWindow: Bool {
     NSApp.windows.contains { window in
-      guard window.isVisible, let identifier = window.identifier?.rawValue else { return false }
-      return identifier.contains(WindowID.tunnels) || identifier.contains(WindowID.settings)
+      guard window.isVisible, !window.isMiniaturized, !(window is NSPanel) else { return false }
+      if let identifier = window.identifier?.rawValue, identifier.contains(WindowID.main) { return true }
+      return window.styleMask.contains(.titled) && window.level == .normal
     }
   }
 

@@ -4,17 +4,29 @@ import SecureTunnelsCore
 
 struct TunnelEditorView: View {
   @Environment(TunnelManager.self) private var manager
-  @Binding var tunnel: Tunnel
+  let stored: Tunnel
 
+  @State private var tunnel: Tunnel
   @State private var passphrase = ""
   @State private var password = ""
+  @State private var savedPassphrase = ""
+  @State private var savedPassword = ""
   @State private var secretError: String?
-  @State private var loadedSecrets = false
   @State private var portUsage: PortUsage?
   @State private var probeTask: Task<Void, Never>?
 
+  init(tunnel: Tunnel) {
+    stored = tunnel
+    _tunnel = State(initialValue: tunnel)
+  }
+
+  private var current: Tunnel { manager.tunnel(stored.id) ?? stored }
   private var status: TunnelStatus { manager.status(of: tunnel.id) }
   private var profile: Profile? { manager.profile(for: tunnel) }
+
+  private var isDirty: Bool {
+    tunnel != current || (tunnel.profileID == nil && (passphrase != savedPassphrase || password != savedPassword))
+  }
 
   var body: some View {
     Form {
@@ -77,9 +89,7 @@ struct TunnelEditorView: View {
               .help("Pick the private key file for this tunnel")
           }
           SecureField("Key passphrase", text: $passphrase, prompt: Text("Only if the key is encrypted"))
-            .onChange(of: passphrase) { _, value in store(value, .passphrase) }
           SecureField("Password", text: $password, prompt: Text("Only for password authentication"))
-            .onChange(of: password) { _, value in store(value, .password) }
           if let secretError {
             Text(secretError).font(.caption).foregroundStyle(.red)
           }
@@ -89,6 +99,7 @@ struct TunnelEditorView: View {
               .foregroundStyle(.secondary)
             Spacer()
             Button {
+              save()
               if let created = manager.createProfile(fromTunnel: tunnel.id) {
                 manager.pendingProfileSelection = created.id
               }
@@ -196,13 +207,16 @@ struct TunnelEditorView: View {
             .foregroundStyle(.secondary)
         }
         HStack(spacing: 10) {
-          Button { manager.toggle(tunnel.id) } label: {
+          Button {
+            if isDirty { save() }
+            manager.toggle(tunnel.id)
+          } label: {
             Label(status.isActive ? "Disconnect" : "Connect", systemImage: status.isActive ? "stop.fill" : "play.fill")
               .frame(minWidth: 96)
           }
           .buttonStyle(.borderedProminent)
           .tint(status.isActive ? .red : .accentColor)
-          .help(status.isActive ? "Close this tunnel" : "Open this tunnel")
+          .help(status.isActive ? "Close this tunnel" : (isDirty ? "Save and open this tunnel" : "Open this tunnel"))
           Button { showLog() } label: { Label("Show Log", systemImage: "doc.text.magnifyingglass") }
             .buttonStyle(.bordered)
             .disabled(!FileManager.default.fileExists(atPath: AppPaths.logFile(for: tunnel.id).path))
@@ -213,6 +227,12 @@ struct TunnelEditorView: View {
       }
     }
     .formStyle(.grouped)
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if isDirty {
+        UnsavedChangesBar(revert: revert, save: save)
+      }
+    }
+    .animation(.default, value: isDirty)
     .onAppear {
       loadSecrets()
       probePort()
@@ -220,6 +240,34 @@ struct TunnelEditorView: View {
     .onChange(of: tunnel.bindPort) { probePort() }
     .onChange(of: tunnel.type) { probePort() }
     .onChange(of: status) { probePort() }
+    .onChange(of: isDirty) { _, dirty in publish(dirty) }
+    .onDisappear { manager.clearEditorSession() }
+  }
+
+  private func publish(_ dirty: Bool) {
+    manager.editorHasChanges = dirty
+    manager.editorSave = dirty ? save : nil
+    manager.editorDiscard = dirty ? revert : nil
+  }
+
+  private func save() {
+    manager.update(tunnel)
+    guard tunnel.profileID == nil else { return }
+    do {
+      try manager.setSecret(passphrase, .passphrase, for: tunnel.id)
+      try manager.setSecret(password, .password, for: tunnel.id)
+      savedPassphrase = passphrase
+      savedPassword = password
+      secretError = nil
+    } catch {
+      secretError = "Could not save to keychain: \(error.localizedDescription)"
+    }
+  }
+
+  private func revert() {
+    tunnel = current
+    passphrase = savedPassphrase
+    password = savedPassword
   }
 
   private var existingGroups: [String] {
@@ -259,20 +307,10 @@ struct TunnelEditorView: View {
   }
 
   private func loadSecrets() {
-    guard !loadedSecrets else { return }
-    passphrase = manager.secret(.passphrase, for: tunnel.id)
-    password = manager.secret(.password, for: tunnel.id)
-    loadedSecrets = true
-  }
-
-  private func store(_ value: String, _ kind: SecretKind) {
-    guard loadedSecrets else { return }
-    do {
-      try manager.setSecret(value, kind, for: tunnel.id)
-      secretError = nil
-    } catch {
-      secretError = "Could not save to keychain: \(error.localizedDescription)"
-    }
+    savedPassphrase = manager.secret(.passphrase, for: tunnel.id)
+    savedPassword = manager.secret(.password, for: tunnel.id)
+    passphrase = savedPassphrase
+    password = savedPassword
   }
 
   private func chooseIdentityFile() {

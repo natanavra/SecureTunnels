@@ -4,36 +4,47 @@ import SecureTunnelsCore
 
 struct ProfileEditorView: View {
   @Environment(TunnelManager.self) private var manager
-  @Binding var profile: Profile
+  let profile: Profile
 
+  @State private var draft: Profile
   @State private var passphrase = ""
   @State private var password = ""
+  @State private var savedPassphrase = ""
+  @State private var savedPassword = ""
   @State private var secretError: String?
-  @State private var loadedSecrets = false
+
+  init(profile: Profile) {
+    self.profile = profile
+    _draft = State(initialValue: profile)
+  }
+
+  private var stored: Profile { manager.profile(profile.id) ?? profile }
+
+  private var isDirty: Bool {
+    draft != stored || passphrase != savedPassphrase || password != savedPassword
+  }
 
   var body: some View {
     Form {
       Section("Profile") {
-        TextField("Name", text: $profile.name)
+        TextField("Name", text: $draft.name)
         Text(usageText)
           .font(.caption)
           .foregroundStyle(.secondary)
       }
 
       Section("SSH Server") {
-        TextField("Host", text: $profile.host, prompt: Text("bastion.example.com"))
-        TextField("Port", value: $profile.port, format: .number.grouping(.never))
-        TextField("Username", text: $profile.username, prompt: Text("ec2-user"))
+        TextField("Host", text: $draft.host, prompt: Text("bastion.example.com"))
+        TextField("Port", value: $draft.port, format: .number.grouping(.never))
+        TextField("Username", text: $draft.username, prompt: Text("ec2-user"))
         HStack {
-          TextField("Identity file", text: $profile.identityFile, prompt: Text("Leave empty to use ~/.ssh keys or the agent"))
+          TextField("Identity file", text: $draft.identityFile, prompt: Text("Leave empty to use ~/.ssh keys or the agent"))
           Button { chooseIdentityFile() } label: { Label("Choose", systemImage: "folder") }
             .buttonStyle(.bordered)
             .help("Pick the private key file for this profile")
         }
         SecureField("Key passphrase", text: $passphrase, prompt: Text("Only if the key is encrypted"))
-          .onChange(of: passphrase) { _, value in store(value, .passphrase) }
         SecureField("Password", text: $password, prompt: Text("Only for password authentication"))
-          .onChange(of: password) { _, value in store(value, .password) }
         if let secretError {
           Text(secretError).font(.caption).foregroundStyle(.red)
         }
@@ -58,13 +69,21 @@ struct ProfileEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-              .help("Edit \(tunnel.name)")
+            .help("Edit \(tunnel.name)")
           }
         }
       }
     }
     .formStyle(.grouped)
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if isDirty {
+        UnsavedChangesBar(revert: revert, save: save)
+      }
+    }
+    .animation(.default, value: isDirty)
     .onAppear(perform: loadSecrets)
+    .onChange(of: isDirty) { _, dirty in publish(dirty) }
+    .onDisappear { manager.clearEditorSession() }
   }
 
   private var usageText: String {
@@ -76,21 +95,36 @@ struct ProfileEditorView: View {
     }
   }
 
-  private func loadSecrets() {
-    guard !loadedSecrets else { return }
-    passphrase = manager.secret(.passphrase, for: profile.id)
-    password = manager.secret(.password, for: profile.id)
-    loadedSecrets = true
+  private func publish(_ dirty: Bool) {
+    manager.editorHasChanges = dirty
+    manager.editorSave = dirty ? save : nil
+    manager.editorDiscard = dirty ? revert : nil
   }
 
-  private func store(_ value: String, _ kind: SecretKind) {
-    guard loadedSecrets else { return }
+  private func loadSecrets() {
+    savedPassphrase = manager.secret(.passphrase, for: profile.id)
+    savedPassword = manager.secret(.password, for: profile.id)
+    passphrase = savedPassphrase
+    password = savedPassword
+  }
+
+  private func save() {
+    manager.updateProfile(draft)
     do {
-      try manager.setSecret(value, kind, for: profile.id)
+      try manager.setSecret(passphrase, .passphrase, for: profile.id)
+      try manager.setSecret(password, .password, for: profile.id)
+      savedPassphrase = passphrase
+      savedPassword = password
       secretError = nil
     } catch {
       secretError = "Could not save to keychain: \(error.localizedDescription)"
     }
+  }
+
+  private func revert() {
+    draft = stored
+    passphrase = savedPassphrase
+    password = savedPassword
   }
 
   private func chooseIdentityFile() {
@@ -100,11 +134,11 @@ struct ProfileEditorView: View {
     panel.allowsMultipleSelection = false
     panel.showsHiddenFiles = true
     panel.message = "Choose the private key for this profile"
-    panel.directoryURL = profile.identityFile.isEmpty
+    panel.directoryURL = draft.identityFile.isEmpty
       ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
-      : URL(fileURLWithPath: (profile.identityFile as NSString).expandingTildeInPath).deletingLastPathComponent()
+      : URL(fileURLWithPath: (draft.identityFile as NSString).expandingTildeInPath).deletingLastPathComponent()
     if panel.runModal() == .OK, let url = panel.url {
-      profile.identityFile = url.path
+      draft.identityFile = url.path
     }
   }
 }

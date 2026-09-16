@@ -4,18 +4,21 @@ import SecureTunnelsCore
 enum SidebarMode: String, CaseIterable, Identifiable {
   case tunnels = "Tunnels"
   case profiles = "Profiles"
+  case settings = "Settings"
   var id: String { rawValue }
 }
 
 struct TunnelsWindow: View {
   @Environment(TunnelManager.self) private var manager
-  @Environment(\.openWindow) private var openWindow
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var mode: SidebarMode = .tunnels
   @State private var selection: UUID?
   @State private var profileSelection: UUID?
+  @State private var settingsSection: SettingsSection? = .startup
   @State private var confirmDelete = false
   @State private var importMessage: String?
+  @State private var pendingChange: (() -> Void)?
+  @State private var showUnsavedDialog = false
 
   init(initialSelection: UUID? = nil) {
     _selection = State(initialValue: initialSelection)
@@ -31,6 +34,7 @@ struct TunnelsWindow: View {
       ToolbarItemGroup(placement: .primaryAction) {
         if mode == .tunnels, let id = selection, manager.tunnel(id) != nil {
           Button {
+            manager.editorSave?()
             manager.toggle(id)
           } label: {
             Label(
@@ -38,7 +42,7 @@ struct TunnelsWindow: View {
               systemImage: manager.status(of: id).isActive ? "stop.fill" : "play.fill"
             )
           }
-          .help(manager.status(of: id).isActive ? "Disconnect this tunnel" : "Connect this tunnel")
+          .help(manager.status(of: id).isActive ? "Disconnect this tunnel" : "Save and connect this tunnel")
         }
         Button {
           importFromSecurePipes()
@@ -48,12 +52,11 @@ struct TunnelsWindow: View {
         .help("Import connections from Secure Pipes")
         .disabled(!SecurePipesImporter.isAvailable())
         Button {
-          AppDelegate.bringToFront()
-          openWindow(id: WindowID.settings)
+          requestChange { mode = .settings }
         } label: {
           Label("Settings", systemImage: "gearshape")
         }
-        .help("Open Settings: launch at login, import and storage")
+        .help("Launch at login, import and storage")
       }
     }
     .alert("Secure Pipes Import", isPresented: Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })) {
@@ -61,29 +64,75 @@ struct TunnelsWindow: View {
     } message: {
       Text(importMessage ?? "")
     }
-    .onAppear(perform: consumePendingSelection)
-    .onChange(of: manager.pendingSelection) { consumePendingSelection() }
-    .onChange(of: manager.pendingProfileSelection) { consumePendingSelection() }
+    .confirmationDialog("You have unsaved changes.", isPresented: $showUnsavedDialog, titleVisibility: .visible) {
+      Button("Save Changes") {
+        manager.editorSave?()
+        applyPendingChange()
+      }
+      Button("Discard Changes", role: .destructive) {
+        manager.editorDiscard?()
+        applyPendingChange()
+      }
+      Button("Cancel", role: .cancel) { pendingChange = nil }
+    } message: {
+      Text("Save them before switching, or discard them.")
+    }
+    .onAppear(perform: consumePending)
+    .onChange(of: manager.pendingSelection) { consumePending() }
+    .onChange(of: manager.pendingProfileSelection) { consumePending() }
+    .onChange(of: manager.pendingMode) { consumePending() }
     .frame(minWidth: 880, minHeight: 600)
   }
 
-  /// The popover and the editor ask for a specific tunnel or profile through the manager.
-  private func consumePendingSelection() {
+  /// Runs a navigation change now, or after the user decides what to do with unsaved edits.
+  private func requestChange(_ change: @escaping () -> Void) {
+    guard manager.editorHasChanges else {
+      change()
+      return
+    }
+    pendingChange = change
+    showUnsavedDialog = true
+  }
+
+  private func applyPendingChange() {
+    let change = pendingChange
+    pendingChange = nil
+    manager.clearEditorSession()
+    change?()
+  }
+
+  private func guarded<T: Equatable>(_ value: Binding<T>) -> Binding<T> {
+    Binding(get: { value.wrappedValue }, set: { new in
+      guard new != value.wrappedValue else { return }
+      requestChange { value.wrappedValue = new }
+    })
+  }
+
+  /// The popover and the editors ask for a specific tunnel, profile or mode through the manager.
+  private func consumePending() {
     if let id = manager.pendingSelection {
-      mode = .tunnels
-      selection = id
       manager.pendingSelection = nil
+      requestChange {
+        mode = .tunnels
+        selection = id
+      }
     }
     if let id = manager.pendingProfileSelection {
-      mode = .profiles
-      profileSelection = id
       manager.pendingProfileSelection = nil
+      requestChange {
+        mode = .profiles
+        profileSelection = id
+      }
+    }
+    if let wanted = manager.pendingMode {
+      manager.pendingMode = nil
+      requestChange { mode = wanted }
     }
   }
 
   private var sidebar: some View {
     VStack(spacing: 0) {
-      Picker("", selection: $mode) {
+      Picker("", selection: guarded($mode)) {
         ForEach(SidebarMode.allCases) { Text($0.rawValue).tag($0) }
       }
       .pickerStyle(.segmented)
@@ -93,10 +142,15 @@ struct TunnelsWindow: View {
       switch mode {
       case .tunnels: tunnelList
       case .profiles: profileList
+      case .settings: settingsList
       }
     }
     .navigationSplitViewColumnWidth(min: 290, ideal: 310, max: 420)
-    .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if mode != .settings {
+        bottomBar
+      }
+    }
     .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
       Button("Remove", role: .destructive, action: deleteSelected)
     } message: {
@@ -105,7 +159,7 @@ struct TunnelsWindow: View {
   }
 
   private var tunnelList: some View {
-    List(selection: $selection) {
+    List(selection: guarded($selection)) {
       ForEach(manager.groups, id: \.self) { group in
         Section(group.isEmpty ? (manager.groups.count > 1 ? "Other" : "") : group) {
           ForEach(manager.tunnels(inGroup: group)) { tunnel in
@@ -124,12 +178,14 @@ struct TunnelsWindow: View {
             .contextMenu {
               Button(manager.status(of: tunnel.id).isActive ? "Disconnect" : "Connect") { manager.toggle(tunnel.id) }
               Button("Duplicate") {
-                if let copy = manager.duplicate(tunnel.id) { selection = copy.id }
+                if let copy = manager.duplicate(tunnel.id) { requestChange { selection = copy.id } }
               }
               Divider()
               Button("Remove…", role: .destructive) {
-                selection = tunnel.id
-                confirmDelete = true
+                requestChange {
+                  selection = tunnel.id
+                  confirmDelete = true
+                }
               }
             }
           }
@@ -139,7 +195,7 @@ struct TunnelsWindow: View {
   }
 
   private var profileList: some View {
-    List(selection: $profileSelection) {
+    List(selection: guarded($profileSelection)) {
       ForEach(manager.profiles) { profile in
         VStack(alignment: .leading, spacing: 1) {
           Text(profile.name).lineLimit(1)
@@ -152,8 +208,10 @@ struct TunnelsWindow: View {
         .tag(profile.id)
         .contextMenu {
           Button("Remove…", role: .destructive) {
-            profileSelection = profile.id
-            confirmDelete = true
+            requestChange {
+              profileSelection = profile.id
+              confirmDelete = true
+            }
           }
         }
       }
@@ -161,6 +219,16 @@ struct TunnelsWindow: View {
         Text("Profiles bundle a server's host, user, key and secrets so several tunnels can share them.")
           .font(.caption)
           .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private var settingsList: some View {
+    List(selection: $settingsSection) {
+      ForEach(SettingsSection.allCases) { section in
+        Label(section.rawValue, systemImage: section.systemImage)
+          .padding(.vertical, 2)
+          .tag(section)
       }
     }
   }
@@ -175,7 +243,7 @@ struct TunnelsWindow: View {
       .help(mode == .tunnels ? "Create a new tunnel" : "Create a new profile")
       if mode == .tunnels {
         SidebarIconButton(systemImage: "doc.on.doc", help: "Duplicate the selected tunnel", disabled: selection == nil) {
-          if let id = selection, let copy = manager.duplicate(id) { selection = copy.id }
+          if let id = selection, let copy = manager.duplicate(id) { requestChange { selection = copy.id } }
         }
       }
       SidebarIconButton(
@@ -198,9 +266,12 @@ struct TunnelsWindow: View {
   }
 
   private func addItem() {
-    switch mode {
-    case .tunnels: selection = manager.add().id
-    case .profiles: profileSelection = manager.addProfile().id
+    requestChange {
+      switch mode {
+      case .tunnels: selection = manager.add().id
+      case .profiles: profileSelection = manager.addProfile().id
+      case .settings: break
+      }
     }
   }
 
@@ -208,6 +279,7 @@ struct TunnelsWindow: View {
     switch mode {
     case .tunnels: return "Remove “\(selection.flatMap(manager.tunnel)?.name ?? "")”?"
     case .profiles: return "Remove profile “\(profileSelection.flatMap(manager.profile)?.name ?? "")”?"
+    case .settings: return ""
     }
   }
 
@@ -220,10 +292,13 @@ struct TunnelsWindow: View {
       return count == 0
         ? "No tunnel uses this profile."
         : "\(count) tunnel(s) use this profile. They keep a copy of its settings and secrets."
+    case .settings:
+      return ""
     }
   }
 
   private func deleteSelected() {
+    manager.clearEditorSession()
     switch mode {
     case .tunnels:
       if let id = selection {
@@ -235,6 +310,8 @@ struct TunnelsWindow: View {
         manager.removeProfile(id)
         profileSelection = nil
       }
+    case .settings:
+      break
     }
   }
 
@@ -242,18 +319,15 @@ struct TunnelsWindow: View {
   private var detail: some View {
     switch mode {
     case .tunnels:
-      if let id = selection, manager.tunnel(id) != nil {
-        TunnelEditorView(tunnel: Binding(
-          get: { manager.tunnel(id) ?? Tunnel(id: id) },
-          set: { manager.update($0) }
-        ))
-        .id(id)
+      if let id = selection, let tunnel = manager.tunnel(id) {
+        TunnelEditorView(tunnel: tunnel)
+          .id(id)
       } else {
         ContentUnavailableView {
           Label("No Tunnel Selected", systemImage: "point.3.connected.trianglepath.dotted")
         } description: {
           Text(manager.tunnels.isEmpty
-            ? "Add a tunnel with the + button, or import your Secure Pipes connections."
+            ? "Add a tunnel with the New Tunnel button, or import your Secure Pipes connections."
             : "Select a tunnel to edit it.")
         } actions: {
           if manager.tunnels.isEmpty && SecurePipesImporter.isAvailable() {
@@ -265,12 +339,9 @@ struct TunnelsWindow: View {
         }
       }
     case .profiles:
-      if let id = profileSelection, manager.profile(id) != nil {
-        ProfileEditorView(profile: Binding(
-          get: { manager.profile(id) ?? Profile(id: id) },
-          set: { manager.updateProfile($0) }
-        ))
-        .id(id)
+      if let id = profileSelection, let profile = manager.profile(id) {
+        ProfileEditorView(profile: profile)
+          .id(id)
       } else {
         ContentUnavailableView {
           Label("No Profile Selected", systemImage: "person.badge.key")
@@ -278,6 +349,8 @@ struct TunnelsWindow: View {
           Text("A profile is a server plus its credentials. Tunnels that use it share the host, user, key and secrets.")
         }
       }
+    case .settings:
+      SettingsView(section: settingsSection ?? .startup)
     }
   }
 
@@ -312,5 +385,31 @@ private struct SidebarIconButton: View {
     .disabled(disabled)
     .onHover { hovering = $0 }
     .help(help)
+  }
+}
+
+/// The bar shown under an editor while it has unsaved changes.
+struct UnsavedChangesBar: View {
+  let revert: () -> Void
+  let save: () -> Void
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "pencil.circle.fill")
+        .foregroundStyle(.orange)
+      Text("Unsaved changes")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Button { revert() } label: { Label("Revert", systemImage: "arrow.uturn.backward") }
+        .buttonStyle(.bordered)
+        .help("Throw away the edits and go back to the saved version")
+      Button { save() } label: { Label("Save", systemImage: "checkmark").frame(minWidth: 64) }
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut("s")
+        .help("Save the changes (Command-S)")
+    }
+    .padding(10)
+    .background(.bar)
+    .overlay(alignment: .top) { Divider() }
   }
 }
