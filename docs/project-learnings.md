@@ -86,3 +86,23 @@
   service `apiToken`. The app only reads the ids for display; cloudflared itself uses that token against
   special endpoints (`/zones/{zone}/tunnels/{id}/routes`), so it is not reused with the public DNS API.
   `cloudflared tunnel list -o json` is the only list command; there is no command that lists DNS routes.
+
+## Popover crash and empty list (2026-09-25)
+
+- Empty popover: with 5 tunnels or fewer the list sat in a ScrollView sized only by maxHeight. MenuBarExtra
+  sizes its window from the ideal size, and a ScrollView's ideal height is about zero, so the rows were laid out
+  at height 0 (measured: 70 pt for header and footer instead of 180). The snapshot tool measured fittingSize,
+  which does not collapse, so screenshots never showed it. `--popover-sizes` now prints the ideal and preferred
+  heights for 0 to 8 tunnels.
+- Crash: five reports, all EXC_BAD_ACCESS on the main thread inside the private DesignLibrary framework (system
+  control styles), in `swift_task_isCurrentExecutor` with a corrupted executor pointer, during an animated
+  window layout. DesignLibrary symbols are stripped, so the exact control is not identifiable. MenuBarExtra
+  animated every resize and kept its SwiftUI content rendering while closed, so background reconnects kept
+  re-rendering system switches and bordered buttons.
+- Fix: no SwiftUI scenes. main.swift runs NSApplication; an NSStatusItem with a plain image, an NSPopover with
+  animates = false whose NSHostingController is created on open and released on close, and an NSWindow owned by
+  MainWindowController with sceneBridgingOptions [.toolbars, .title]. Popover rows have fixed heights, the list
+  height is computed, and the switch and group buttons are drawn with plain shapes.
+- On macOS 26 status item windows are owned by Control Center, not the app, so CGWindowList cannot confirm a
+  status item. `--selftest` installs the real status item, opens and closes the real popover, and can capture
+  the real main window; `--stress N` opens and closes the popover N times while cycling every tunnel's status.

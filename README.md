@@ -51,7 +51,7 @@ Requires macOS 14 or newer.
 
 ### From the disk image
 
-1. Download `SecureTunnels-1.3.0.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
+1. Download `SecureTunnels-1.3.1.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
 2. Right-click SecureTunnels and choose Open, then Open again in the Gatekeeper dialog. This is needed once
    because the app is not notarized.
 3. Accept "Install SecureTunnels in your Applications folder?". The app copies itself to Applications, clears
@@ -80,7 +80,7 @@ Unzip it, right-click the app, choose Open, and accept the install prompt. The a
 Applications, clears quarantine, and trashes the extracted copy and the zip. Or do it by hand:
 
 ```bash
-unzip SecureTunnels-1.3.0.zip -d /Applications
+unzip SecureTunnels-1.3.1.zip -d /Applications
 xattr -dr com.apple.quarantine /Applications/SecureTunnels.app
 open /Applications/SecureTunnels.app
 ```
@@ -148,7 +148,10 @@ The app also answers two command line flags, which the Makefile uses:
 
 ```bash
 /Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --launch-at-login on|off|status
-/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --snapshot <dir> [--demo] [--dark]
+/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --snapshot <dir> [--demo] [--demo-count N] [--dark]
+/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --selftest [--demo] [--capture main.png]
+/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --stress 400
+/Applications/SecureTunnels.app/Contents/MacOS/SecureTunnels --popover-sizes
 /Volumes/SecureTunnels/SecureTunnels.app/Contents/MacOS/SecureTunnels --install
 ```
 
@@ -196,7 +199,8 @@ toggle off and on again in Settings after replacing the app.
 
 - `Sources/SecureTunnelsCore`: tunnel and profile model, JSON storage, keychain, ssh argument builder, port
   probe, Secure Pipes importer.
-- `Sources/SecureTunnels`: the SwiftUI app (menu bar popover, Tunnels window, Settings, tunnel manager).
+- `Sources/SecureTunnels`: the app. AppKit owns the status item, popover and main window; SwiftUI draws the
+  views inside them (popover, Tunnels window, Settings) and the tunnel manager drives the processes.
 - `Sources/SecureTunnelsAskPass`: the askpass helper.
 - `Tests/SecureTunnelsCoreTests`: unit tests with a Secure Pipes fixture.
 - `scripts/bundle.sh`: turns the SwiftPM products into an app bundle.

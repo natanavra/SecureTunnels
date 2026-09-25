@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.3.0}"
+VERSION="${VERSION:-1.3.1}"
 APP="build/SecureTunnels.app"
 STAGE="build/dmg-stage"
 TMP="build/SecureTunnels-tmp.dmg"
