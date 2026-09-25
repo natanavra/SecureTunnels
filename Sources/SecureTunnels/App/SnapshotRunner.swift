@@ -9,6 +9,35 @@ import SecureTunnelsCore
 enum SnapshotRunner {
   static func runIfRequested() -> Bool {
     let arguments = CommandLine.arguments
+    if arguments.contains("--popover-sizes") {
+      printPopoverSizes()
+      exit(0)
+    }
+    if let index = arguments.firstIndex(of: "--stress") {
+      let cycles = index + 1 < arguments.count ? Int(arguments[index + 1]) ?? 200 : 200
+      TunnelManager.shared.loadDemoData()
+      Task { @MainActor in
+        await StatusItemController.shared.stressTest(cycles: cycles)
+        exit(0)
+      }
+      return true
+    }
+    if arguments.contains("--selftest") {
+      if arguments.contains("--demo") { TunnelManager.shared.loadDemoData() }
+      Task { @MainActor in
+        await StatusItemController.shared.selfTest()
+        MainWindowController.shared.show(mode: .tunnels)
+        try? await Task.sleep(for: .seconds(2))
+        if let index = arguments.firstIndex(of: "--capture"), index + 1 < arguments.count,
+          let window = MainWindowController.shared.window, let image = capture(window) {
+          let rep = NSBitmapImageRep(cgImage: image)
+          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: arguments[index + 1]))
+          print("main window captured \(image.width)x\(image.height) toolbar=\(window.toolbar != nil) items=\(window.toolbar?.items.count ?? 0)")
+        }
+        exit(0)
+      }
+      return true
+    }
     guard let index = arguments.firstIndex(of: "--snapshot"), index + 1 < arguments.count else { return false }
     let directory = URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -17,6 +46,9 @@ enum SnapshotRunner {
     let settings = AppSettings.shared
     if arguments.contains("--demo") {
       manager.loadDemoData()
+      if let index = arguments.firstIndex(of: "--demo-count"), index + 1 < arguments.count, let count = Int(arguments[index + 1]) {
+        manager.trimDemoData(to: count)
+      }
     }
     if arguments.contains("--dark") {
       NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -73,6 +105,21 @@ enum SnapshotRunner {
       exit(0)
     }
     return true
+  }
+
+  /// Prints how tall the popover would be for 0 to 8 demo tunnels, hosted the same way StatusItemController does.
+  /// A list that collapses shows up as a height equal to the header plus footer.
+  private static func printPopoverSizes() {
+    let manager = TunnelManager.shared
+    for count in 0...8 {
+      manager.loadDemoData()
+      manager.trimDemoData(to: count)
+      let host = NSHostingController(rootView: MenuBarView().environment(manager).environment(AppSettings.shared))
+      host.sizingOptions = [.preferredContentSize]
+      let ideal = host.sizeThatFits(in: NSSize(width: CGFloat.nan, height: CGFloat.nan))
+      host.view.layoutSubtreeIfNeeded()
+      print("tunnels=\(count) ideal=\(Int(ideal.width))x\(Int(ideal.height)) preferred=\(Int(host.preferredContentSize.width))x\(Int(host.preferredContentSize.height))")
+    }
   }
 
   /// Renders the status item glyphs at 8x, on light and dark backgrounds, for a quick visual check.

@@ -3,7 +3,8 @@ import SecureTunnelsCore
 
 struct MenuBarView: View {
   @Environment(TunnelManager.self) private var manager
-  @Environment(\.openWindow) private var openWindow
+  /// Opens the main window, optionally in a given sidebar mode. The status item controller closes the popover.
+  var openMain: (SidebarMode?) -> Void = { _ in }
   @AppStorage("menuShowsAllTunnels") private var showAll = false
   /// The compact order is decided when the popover opens and kept until it closes, so rows do not jump
   /// around while the user is switching tunnels on and off.
@@ -11,6 +12,11 @@ struct MenuBarView: View {
 
   /// How many rows the compact list shows before "Show all".
   static let compactLimit = 5
+  /// Rows and group headers have fixed heights so the list height is known without measuring. A ScrollView only
+  /// appears past the cap, with an explicit height, because an unsized ScrollView collapses to nothing here.
+  static let rowHeight: CGFloat = 44
+  static let groupHeaderHeight: CGFloat = 26
+  static let maxListHeight: CGFloat = 460
 
   var body: some View {
     VStack(spacing: 0) {
@@ -19,27 +25,22 @@ struct MenuBarView: View {
       if manager.tunnels.isEmpty {
         emptyState
       } else if showAll || manager.tunnels.count <= Self.compactLimit {
-        ScrollView {
-          VStack(spacing: 1) {
-            ForEach(manager.groups, id: \.self) { group in
-              if manager.groups.count > 1 || !group.isEmpty {
-                GroupHeader(group: group)
-              }
-              ForEach(manager.tunnels(inGroup: group)) { tunnel in
-                TunnelMenuRow(tunnel: tunnel, showDetails: { showDetails(tunnel.id) })
-              }
+        sizedList(rows: manager.tunnels.count, headers: showsGroupHeaders ? manager.groups.count : 0) {
+          ForEach(manager.groups, id: \.self) { group in
+            if showsGroupHeaders {
+              GroupHeader(group: group)
+            }
+            ForEach(manager.tunnels(inGroup: group)) { tunnel in
+              TunnelMenuRow(tunnel: tunnel, showDetails: { showDetails(tunnel.id) })
             }
           }
-          .padding(6)
         }
-        .frame(maxHeight: 460)
       } else {
-        VStack(spacing: 1) {
+        sizedList(rows: compactTunnels.count, headers: 0) {
           ForEach(compactTunnels) { tunnel in
             TunnelMenuRow(tunnel: tunnel, showDetails: { showDetails(tunnel.id) })
           }
         }
-        .padding(6)
       }
       if manager.tunnels.count > Self.compactLimit {
         Divider()
@@ -57,6 +58,27 @@ struct MenuBarView: View {
     }
     .frame(width: 320)
     .onAppear { compactOrder = rankedTunnelIDs() }
+  }
+
+  private var showsGroupHeaders: Bool {
+    manager.groups.count > 1 || manager.groups.first?.isEmpty == false
+  }
+
+  static func listHeight(rows: Int, headers: Int) -> CGFloat {
+    let items = rows + headers
+    let spacing = CGFloat(max(items - 1, 0))
+    return CGFloat(rows) * rowHeight + CGFloat(headers) * groupHeaderHeight + spacing + 12
+  }
+
+  @ViewBuilder
+  private func sizedList<Content: View>(rows: Int, headers: Int, @ViewBuilder content: () -> Content) -> some View {
+    let list = VStack(spacing: 1) { content() }.padding(6)
+    let height = Self.listHeight(rows: rows, headers: headers)
+    if height > Self.maxListHeight {
+      ScrollView { list }.frame(height: Self.maxListHeight)
+    } else {
+      list.frame(height: height, alignment: .top)
+    }
   }
 
   /// The rows in the order frozen at open time. Tunnels added since then go last; removed ones drop out.
@@ -115,9 +137,8 @@ struct MenuBarView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      Button { open(WindowID.main) } label: { Label("Manage Tunnels", systemImage: "slider.horizontal.3") }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
+      Button { openMain(.tunnels) } label: { Label("Manage Tunnels", systemImage: "slider.horizontal.3") }
+        .buttonStyle(PillButtonStyle(prominent: true))
         .help("Add your first tunnel")
     }
     .padding(.horizontal, 16)
@@ -131,13 +152,11 @@ struct MenuBarView: View {
         MenuRowButton(title: "Disconnect All", systemImage: "stop.circle", help: "Close every open tunnel") { manager.disconnectAll() }
       }
       MenuRowButton(title: "Manage Tunnels…", systemImage: "slider.horizontal.3", help: "Add, edit and remove tunnels and profiles") {
-        manager.pendingMode = .tunnels
-        open(WindowID.main)
+        openMain(.tunnels)
       }
       .keyboardShortcut(",", modifiers: [.command, .shift])
       MenuRowButton(title: "Settings…", systemImage: "gearshape", help: "Launch at login, import and storage") {
-        manager.pendingMode = .settings
-        open(WindowID.main)
+        openMain(.settings)
       }
       .keyboardShortcut(",")
       MenuRowButton(title: "Quit SecureTunnels", systemImage: "power", help: "Quit and close every tunnel") { NSApp.terminate(nil) }
@@ -148,12 +167,7 @@ struct MenuBarView: View {
 
   private func showDetails(_ id: UUID) {
     manager.pendingSelection = id
-    open(WindowID.main)
-  }
-
-  private func open(_ id: String) {
-    AppDelegate.bringToFront()
-    openWindow(id: id)
+    openMain(nil)
   }
 }
 
@@ -176,24 +190,22 @@ private struct GroupHeader: View {
       if hovering {
         if !allActive {
           Button { manager.connectAll(inGroup: group) } label: {
-            Label("All", systemImage: "play.fill").font(.caption2)
+            Label("All", systemImage: "play.fill")
           }
           .help("Connect all in \(group.isEmpty ? "Other" : group)")
         }
         if anyActive {
           Button { manager.disconnectAll(inGroup: group) } label: {
-            Label("All", systemImage: "stop.fill").font(.caption2)
+            Label("All", systemImage: "stop.fill")
           }
           .help("Disconnect all in \(group.isEmpty ? "Other" : group)")
         }
       }
     }
-    .buttonStyle(.bordered)
-    .controlSize(.mini)
+    .buttonStyle(PillButtonStyle(prominent: false))
     .padding(.horizontal, 8)
-    .padding(.top, 8)
-    .padding(.bottom, 2)
-    .frame(height: 26)
+    .padding(.top, 6)
+    .frame(height: MenuBarView.groupHeaderHeight)
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
   }
@@ -239,14 +251,11 @@ private struct TunnelMenuRow: View {
         .buttonStyle(.plain)
         .help("Show why the connection failed")
       }
-      Toggle("", isOn: Binding(get: { status.isActive }, set: { _ in manager.toggle(tunnel.id) }))
-        .labelsHidden()
-        .toggleStyle(.switch)
-        .controlSize(.mini)
+      TunnelSwitch(isOn: status.isActive, label: tunnel.name) { manager.toggle(tunnel.id) }
         .help(status.isActive ? "Disconnect \(tunnel.name)" : "Connect \(tunnel.name)")
     }
     .padding(.horizontal, 8)
-    .padding(.vertical, 6)
+    .frame(height: MenuBarView.rowHeight)
     .background(
       RoundedRectangle(cornerRadius: 6, style: .continuous)
         .fill(hovering ? Color.primary.opacity(0.07) : Color.clear)
@@ -318,5 +327,50 @@ struct MenuRowButton: View {
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .help(help)
+  }
+}
+
+/// A small on/off switch drawn in SwiftUI. The popover avoids system control styles so it only renders plain shapes.
+struct TunnelSwitch: View {
+  let isOn: Bool
+  let label: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Capsule(style: .continuous)
+        .fill(isOn ? Color.accentColor : Color.primary.opacity(0.18))
+        .frame(width: 28, height: 16)
+        .overlay(alignment: isOn ? .trailing : .leading) {
+          Circle()
+            .fill(Color.white)
+            .shadow(color: .black.opacity(0.2), radius: 0.5, y: 0.5)
+            .padding(2)
+        }
+        .animation(.easeOut(duration: 0.12), value: isOn)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+    .accessibilityValue(isOn ? "On" : "Off")
+  }
+}
+
+/// A compact capsule button drawn with plain shapes, used in the popover instead of the bordered system style.
+struct PillButtonStyle: ButtonStyle {
+  let prominent: Bool
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(prominent ? .callout : .caption2)
+      .padding(.horizontal, prominent ? 12 : 7)
+      .padding(.vertical, prominent ? 5 : 2)
+      .background(
+        Capsule(style: .continuous)
+          .fill(prominent ? Color.accentColor : Color.primary.opacity(0.1))
+          .opacity(configuration.isPressed ? 0.7 : 1)
+      )
+      .foregroundStyle(prominent ? Color.white : Color.primary)
+      .contentShape(Capsule())
   }
 }

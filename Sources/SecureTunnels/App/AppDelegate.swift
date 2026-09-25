@@ -10,9 +10,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.accessory)
     if SnapshotRunner.runIfRequested() { return }
     if Installer.offerInstallIfNeeded() { return }
+    NSApp.mainMenu = MainMenu.build(target: self)
     TunnelManager.shared.start()
+    StatusItemController.shared.install()
     observeWindows()
     observeSignals()
+  }
+
+  @objc func showSettings(_ sender: Any?) {
+    MainWindowController.shared.show(mode: .settings)
+  }
+
+  /// Clicking the app in Finder or Spotlight while it runs opens the main window.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    MainWindowController.shared.show()
+    return false
   }
 
   /// `pkill` and `kill` send SIGTERM, which would skip applicationWillTerminate and leave ssh running.
@@ -58,17 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  /// Our own document-style windows only: the menu bar popover is a panel at a higher level and does not count.
+  /// Only the main window counts; the popover and alerts do not give the app a Dock icon.
   static var hasVisibleAppWindow: Bool {
-    NSApp.windows.contains { window in
-      guard window.isVisible, !window.isMiniaturized, !(window is NSPanel) else { return false }
-      if let identifier = window.identifier?.rawValue, identifier.contains(WindowID.main) { return true }
-      return window.styleMask.contains(.titled) && window.level == .normal
-    }
-  }
-
-  static func bringToFront() {
-    NSApp.setActivationPolicy(.regular)
-    NSApp.activate(ignoringOtherApps: true)
+    MainWindowController.shared.isVisible
   }
 }

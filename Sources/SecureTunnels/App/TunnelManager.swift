@@ -374,6 +374,22 @@ final class TunnelManager {
 
   // MARK: Demo data
 
+  /// Demo only: moves every tunnel to the next status, to churn the UI in stress tests.
+  func cycleDemoStatuses(step: Int) {
+    guard persistenceDisabled else { return }
+    let states: [TunnelStatus] = [.connected, .connecting, .reconnecting(at: Date().addingTimeInterval(30), attempt: 2),
+      .failed("Local port 8080 is already in use by node (pid 1)."), .disconnected, .waitingForNetwork]
+    for (index, tunnel) in tunnels.enumerated() {
+      status[tunnel.id] = states[(index + step) % states.count]
+    }
+  }
+
+  /// Keeps only the first `count` demo tunnels, for measuring the popover at different list lengths.
+  func trimDemoData(to count: Int) {
+    guard persistenceDisabled else { return }
+    tunnels = Array(tunnels.prefix(count))
+  }
+
   /// Replaces the in-memory state with sample tunnels for screenshots. Nothing is written to disk afterwards.
   func loadDemoData() {
     persistenceDisabled = true
