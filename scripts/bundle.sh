@@ -11,8 +11,13 @@ BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 APP="build/SecureTunnels.app"
 
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+# Release builds are universal (Apple silicon and Intel); debug builds only target this Mac.
+ARCH_FLAGS=()
+if [ "$CONFIG" = "release" ]; then
+  ARCH_FLAGS=(--arch arm64 --arch x86_64)
+fi
+swift build -c "$CONFIG" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
+BIN="$(swift build -c "$CONFIG" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
 if [ ! -f Resources/AppIcon.icns ]; then
   swift scripts/make-icon.swift Resources/AppIcon.icns

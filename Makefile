@@ -1,7 +1,7 @@
 VERSION ?= 1.3.1
 export VERSION
 
-.PHONY: build debug run test install clean icon snapshots screenshots dist dmg
+.PHONY: build debug run test install clean icon snapshots screenshots dist dmg release
 
 build:
 	scripts/bundle.sh release
@@ -40,6 +40,9 @@ dist: build dmg
 
 dmg: build
 	scripts/make-dmg.sh
+
+release:
+	scripts/release.sh
 
 clean:
 	rm -rf .build build

@@ -4,6 +4,9 @@
 
 # SecureTunnels
 
+**[Download SecureTunnels for macOS](https://github.com/natanavra/SecureTunnels/releases/latest/download/SecureTunnels.dmg)**
+(latest release, macOS 14 or newer, Apple silicon and Intel)
+
 SSH tunnels from the macOS menu bar. SecureTunnels replaces the unmaintained Secure Pipes: it runs
 `/usr/bin/ssh` for you, keeps the tunnels alive, and imports your existing Secure Pipes connections.
 
@@ -51,7 +54,8 @@ Requires macOS 14 or newer.
 
 ### From the disk image
 
-1. Download `SecureTunnels-1.3.1.dmg` from the [latest release](https://github.com/natanavra/SecureTunnels/releases/latest) and open it.
+1. Download [SecureTunnels.dmg](https://github.com/natanavra/SecureTunnels/releases/latest/download/SecureTunnels.dmg)
+   (or pick a version on the [releases page](https://github.com/natanavra/SecureTunnels/releases)) and open it.
 2. Right-click SecureTunnels and choose Open, then Open again in the Gatekeeper dialog. This is needed once
    because the app is not notarized.
 3. Accept "Install SecureTunnels in your Applications folder?". The app copies itself to Applications, clears
@@ -136,6 +140,7 @@ routes in the Cloudflare mode, and deleting one there leaves its DNS record behi
 | `make install`     | Build, copy to `/Applications` and launch                           |
 | `make dmg`         | Build the drag-to-Applications disk image                           |
 | `make dist`        | Build the zip and the disk image under `build/`                     |
+| `make release`     | Tag `v$VERSION` and publish a GitHub release with the zip and DMG   |
 | `make test`        | Run the unit tests (`swift test`)                                   |
 | `make screenshots` | Render the README screenshots with sample data, light and dark      |
 | `make icon`        | Regenerate `Resources/AppIcon.icns` from `Resources/icon-source.png` |
